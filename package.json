@@ -1,0 +1,30 @@
+{
+  "name": "bumpshift",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @bumpshift/shared && npm run build -w @bumpshift/server && npm run build -w @bumpshift/client",
+    "check": "npm run typecheck && npm run test && npm run build && npm run smoke:multiplayer",
+    "dev": "npm run build -w @bumpshift/shared && concurrently --kill-others --names server,client --prefix-colors magenta,cyan \"npm run dev -w @bumpshift/server\" \"npm run dev -w @bumpshift/client\"",
+    "dev:client": "npm run dev -w @bumpshift/client",
+    "dev:server": "npm run dev -w @bumpshift/server",
+    "smoke:multiplayer": "node scripts/smoke-multiplayer.mjs",
+    "test": "vitest run",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/debug": "^4.1.13",
+    "@types/express": "^5.0.6",
+    "concurrently": "^10.0.4",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

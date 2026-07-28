@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta
+      name="description"
+      content="BUMPSHIFT — jeu de kart 3D multijoueur dans votre navigateur."
+    />
+    <meta name="theme-color" content="#07100f" />
+    <title>BUMPSHIFT</title>
+  </head>
+  <body>
+    <canvas id="game-canvas" aria-label="Course BUMPSHIFT"></canvas>
+
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="noise" aria-hidden="true"></div>
+
+    <main id="menu" class="menu">
+      <section class="menu__card" aria-labelledby="game-title">
+        <div class="eyebrow">
+          <span class="eyebrow__dot"></span>
+          Prototype multijoueur en ligne
+        </div>
+
+        <h1 id="game-title" class="logo" aria-label="BUMPSHIFT">
+          <span>BUMP</span><span>SHIFT</span>
+        </h1>
+
+        <p class="tagline">Dérape. Frappe. Termine premier.</p>
+
+        <form id="join-form" class="join-form">
+          <label for="player-name">Nom du pilote</label>
+          <div class="join-form__row">
+            <input
+              id="player-name"
+              name="playerName"
+              maxlength="16"
+              autocomplete="nickname"
+              placeholder="Pilote"
+              value="Pilote"
+            />
+            <button id="join-button" type="submit">
+              <span>Rejoindre la course</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <p id="menu-error" class="menu-error" role="alert"></p>
+        </form>
+
+        <div class="menu__features" aria-label="Fonctionnalités actives">
+          <span>12 pilotes</span>
+          <span>Serveur autoritaire</span>
+          <span>60 Hz</span>
+        </div>
+
+        <p class="controls-hint">
+          ZQSD / flèches pour conduire · Espace pour déraper
+        </p>
+      </section>
+    </main>
+
+    <section id="hud" class="hud" hidden aria-label="Informations de course">
+      <div class="hud__top">
+        <div class="race-pill">
+          <span class="race-pill__live"></span>
+          <span id="connection-label">Connexion</span>
+        </div>
+
+        <div class="hud__network">
+          <span id="player-count">1 pilote</span>
+          <span class="hud__divider"></span>
+          <span id="latency">-- ms</span>
+        </div>
+      </div>
+
+      <div class="hud__position">
+        <strong id="position">1</strong>
+        <span>/</span>
+        <span id="field-size">1</span>
+      </div>
+
+      <div class="hud__lap">
+        <span>Tour</span>
+        <strong><span id="lap">1</span><i>/3</i></strong>
+      </div>
+
+      <div class="hud__speed">
+        <strong id="speed">0</strong>
+        <span>km/h</span>
+      </div>
+
+      <div class="drift-meter">
+        <div class="drift-meter__label">
+          <span>Mini-turbo</span>
+          <span id="drift-level">Prêt</span>
+        </div>
+        <div class="drift-meter__track">
+          <span id="drift-fill"></span>
+          <i></i><i></i>
+        </div>
+      </div>
+    </section>
+
+    <section id="touch-controls" class="touch-controls" aria-label="Commandes tactiles">
+      <div class="touch-controls__steer">
+        <button data-input="left" aria-label="Tourner à gauche">‹</button>
+        <button data-input="right" aria-label="Tourner à droite">›</button>
+      </div>
+      <div class="touch-controls__actions">
+        <button class="touch-controls__drift" data-input="drift">Drift</button>
+        <button class="touch-controls__brake" data-input="brake">Frein</button>
+        <button class="touch-controls__gas" data-input="throttle">Gaz</button>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+
