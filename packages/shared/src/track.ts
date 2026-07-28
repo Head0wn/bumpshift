@@ -196,7 +196,7 @@ export const TRACKS: readonly TrackDefinition[] = Object.freeze([
     location: "Principauté solaire",
     description: "Épingles, tunnel et barrières au bord du port.",
     difficulty: "Technique",
-    width: 10.2,
+    width: 9.4,
     samplesPerSegment: 10,
     elevationProfile: [
       { progress: 0, height: 0 },

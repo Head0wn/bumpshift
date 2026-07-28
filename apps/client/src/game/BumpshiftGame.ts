@@ -6,6 +6,7 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { Scene } from "@babylonjs/core/scene";
 import {
   DEFAULT_TRACK_ID,
@@ -25,6 +26,11 @@ import {
 import { InputController } from "./InputController";
 import { KartVisual } from "./KartVisual";
 import { NetworkSession } from "./NetworkSession";
+import {
+  GameAssetLibrary,
+  KART_ASSET_PATHS,
+  RIVIERA_ASSET_PATHS
+} from "./AssetLibrary";
 import {
   createTrackVisual,
   type TrackVisualHandle
@@ -131,9 +137,11 @@ export class BumpshiftGame {
   private readonly hemisphere: HemisphericLight;
   private readonly sun: DirectionalLight;
   private readonly shadows: ShadowGenerator;
+  private readonly assets: GameAssetLibrary;
   private readonly visuals = new Map<string, KartVisual>();
   private readonly snapshots = new Map<string, PlayerSnapshot>();
   private readonly pendingInputs: KartInput[] = [];
+  private readonly registeredShadowCasters = new Set<AbstractMesh>();
 
   private connection: NetworkSession | null = null;
   private localPlayerId = "";
@@ -159,7 +167,8 @@ export class BumpshiftGame {
     hemisphere: HemisphericLight,
     sun: DirectionalLight,
     shadows: ShadowGenerator,
-    trackVisual: TrackVisualHandle
+    trackVisual: TrackVisualHandle,
+    assets: GameAssetLibrary
   ) {
     this.engine = engine;
     this.scene = scene;
@@ -171,6 +180,7 @@ export class BumpshiftGame {
     this.sun = sun;
     this.shadows = shadows;
     this.trackVisual = trackVisual;
+    this.assets = assets;
     this.readyClickHandler = () => {
       if (!this.connection || this.raceState.phase !== "waiting") {
         return;
@@ -203,7 +213,7 @@ export class BumpshiftGame {
     scene.fogStart = 118;
     scene.fogEnd = 245;
     scene.imageProcessingConfiguration.contrast = 1.08;
-    scene.imageProcessingConfiguration.exposure = 1.05;
+    scene.imageProcessingConfiguration.exposure = 1;
 
     const hemisphere = new HemisphericLight(
       "ambient",
@@ -233,7 +243,20 @@ export class BumpshiftGame {
     });
     glow.intensity = 0.2;
 
-    const trackVisual = createTrackVisual(scene, DEFAULT_TRACK_ID);
+    const assets = new GameAssetLibrary(scene);
+    void assets
+      .preload([...KART_ASSET_PATHS, ...RIVIERA_ASSET_PATHS])
+      .catch((error: unknown) => {
+        console.warn(
+          "Certains assets 3D n'ont pas pu être préchargés.",
+          error
+        );
+      });
+    const trackVisual = createTrackVisual(
+      scene,
+      DEFAULT_TRACK_ID,
+      assets
+    );
 
     const camera = new UniversalCamera(
       "race-camera",
@@ -263,9 +286,13 @@ export class BumpshiftGame {
       hemisphere,
       sun,
       shadows,
-      trackVisual
+      trackVisual,
+      assets
     );
     game.registerEnvironmentShadows(trackVisual);
+    void trackVisual.ready.then(() => {
+      game.registerEnvironmentShadows(trackVisual);
+    });
     game.applySettings(DEFAULT_GAME_SETTINGS);
 
     const onResize = (): void => {
@@ -368,8 +395,17 @@ export class BumpshiftGame {
 
     this.unregisterEnvironmentShadows(this.trackVisual);
     this.trackVisual.dispose();
-    this.trackVisual = createTrackVisual(this.scene, trackId);
+    this.trackVisual = createTrackVisual(
+      this.scene,
+      trackId,
+      this.assets
+    );
     this.registerEnvironmentShadows(this.trackVisual);
+    void this.trackVisual.ready.then(() => {
+      if (this.trackVisual.trackId === trackId) {
+        this.registerEnvironmentShadows(this.trackVisual);
+      }
+    });
     const isRiviera = trackId === "riviera-royale";
     const background = isRiviera ? "#69add6" : "#6faed2";
     const fog = isRiviera ? "#c9d9d5" : "#b7d7c5";
@@ -383,11 +419,17 @@ export class BumpshiftGame {
     this.hemisphere.groundColor = Color3.FromHexString(
       isRiviera ? "#8b7256" : "#52704a"
     );
-    this.hemisphere.intensity = isRiviera ? 1.08 : 1.02;
+    this.hemisphere.intensity = isRiviera ? 0.92 : 1.02;
     this.sun.diffuse = Color3.FromHexString(
       isRiviera ? "#ffe1ae" : "#fff0c9"
     );
-    this.sun.intensity = isRiviera ? 1.7 : 1.55;
+    this.sun.intensity = isRiviera ? 1.32 : 1.55;
+    this.scene.imageProcessingConfiguration.contrast = isRiviera
+      ? 1.14
+      : 1.08;
+    this.scene.imageProcessingConfiguration.exposure = isRiviera
+      ? 0.94
+      : 1;
     this.camera.position.set(0, isRiviera ? 62 : 54, -82);
     this.cameraTarget.set(0, 3, 0);
     this.camera.setTarget(this.cameraTarget);
@@ -401,13 +443,19 @@ export class BumpshiftGame {
       visual = new KartVisual(
         this.scene,
         snapshot.colorIndex,
-        snapshot.name
+        snapshot.name,
+        this.assets,
+        (meshes) => {
+          for (const mesh of meshes) {
+            this.registerShadowCaster(mesh);
+          }
+        }
       );
       visual.setLocalPlayer(snapshot.id === this.localPlayerId);
       this.visuals.set(snapshot.id, visual);
       for (const mesh of visual.root.getChildMeshes()) {
         if (KART_SHADOW_MESHES.has(mesh.name)) {
-          this.shadows.addShadowCaster(mesh, false);
+          this.registerShadowCaster(mesh);
         }
       }
       visual.update(
@@ -454,6 +502,14 @@ export class BumpshiftGame {
     this.refreshRaceOverlay();
   }
 
+  private registerShadowCaster(mesh: AbstractMesh): void {
+    if (this.registeredShadowCasters.has(mesh)) {
+      return;
+    }
+    this.registeredShadowCasters.add(mesh);
+    this.shadows.addShadowCaster(mesh, false);
+  }
+
   private registerEnvironmentShadows(
     trackVisual: TrackVisualHandle
   ): void {
@@ -468,11 +524,12 @@ export class BumpshiftGame {
       if (
         excludedNames.has(mesh.name) ||
         mesh.name.startsWith("kart-") ||
-        mesh.name.startsWith("pilot-")
+        mesh.name.startsWith("pilot-") ||
+        mesh.metadata?.castsShadow === false
       ) {
         continue;
       }
-      this.shadows.addShadowCaster(mesh, false);
+      this.registerShadowCaster(mesh);
     }
   }
 
@@ -481,6 +538,7 @@ export class BumpshiftGame {
   ): void {
     for (const mesh of trackVisual.meshes) {
       this.shadows.removeShadowCaster(mesh, false);
+      this.registeredShadowCasters.delete(mesh);
     }
   }
 
@@ -489,8 +547,9 @@ export class BumpshiftGame {
     const visual = this.visuals.get(playerId);
     if (visual) {
       for (const mesh of visual.root.getChildMeshes()) {
-        if (KART_SHADOW_MESHES.has(mesh.name)) {
+        if (this.registeredShadowCasters.has(mesh)) {
           this.shadows.removeShadowCaster(mesh, false);
+          this.registeredShadowCasters.delete(mesh);
         }
       }
       visual.dispose();
@@ -633,14 +692,14 @@ export class BumpshiftGame {
       trackHeight + 0.6,
       localState.z
     )
-      .subtract(forward.scale(7.1 + speedRatio * 1.25 * motion))
-      .add(new Vector3(0, 3.1 + speedRatio * 0.42 * motion, 0));
+      .subtract(forward.scale(8.6 + speedRatio * 1.5 * motion))
+      .add(new Vector3(0, 4.25 + speedRatio * 0.5 * motion, 0));
     const desiredTarget = new Vector3(
       localState.x,
       trackHeight + 1.05,
       localState.z
     ).add(
-      forward.scale(5.2 + speedRatio * 2.2)
+      forward.scale(6.8 + speedRatio * 2.6)
     );
     const cameraAmount = 1 - Math.exp(-deltaSeconds * 7.5);
     Vector3.LerpToRef(
@@ -657,7 +716,7 @@ export class BumpshiftGame {
     );
     this.camera.setTarget(this.cameraTarget);
     this.camera.fov +=
-      (0.86 + speedRatio * 0.09 * motion - this.camera.fov) *
+      (0.9 + speedRatio * 0.08 * motion - this.camera.fov) *
       (1 - Math.exp(-deltaSeconds * 4));
 
     this.updateHud(localState);
@@ -866,6 +925,7 @@ export class BumpshiftGame {
     this.input.dispose();
     this.unregisterEnvironmentShadows(this.trackVisual);
     this.trackVisual.dispose();
+    this.assets.dispose();
     if (this.connection) {
       await this.connection.dispose();
     }

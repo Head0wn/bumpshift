@@ -6,7 +6,7 @@ export const CHECKPOINT_COUNT = 8;
 export const COUNTDOWN_TICKS = SIMULATION_HZ * 3;
 export const FINISH_GRACE_TICKS = SIMULATION_HZ * 30;
 export const RESULTS_TICKS = SIMULATION_HZ * 10;
-export const KART_COLOR_COUNT = 8;
+export const KART_COLOR_COUNT = 5;
 
 export const TRACK_IDS = ["aurora", "riviera-royale"] as const;
 export type TrackId = (typeof TRACK_IDS)[number];

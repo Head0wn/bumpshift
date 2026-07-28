@@ -1,26 +1,30 @@
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Axis, Space } from "@babylonjs/core/Maths/math.axis";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import {
   trackHeightAtProgress,
   type KartState,
   type TrackId
 } from "@bumpshift/shared";
+import {
+  KART_ASSET_PATHS,
+  type AssetInstance,
+  type GameAssetLibrary
+} from "./AssetLibrary";
 
 export const KART_PALETTES = [
-  { name: "Volt", color: "#d7ef54" },
-  { name: "Ion", color: "#35cfc5" },
-  { name: "Impact", color: "#e95249" },
-  { name: "Spectre", color: "#8f73d8" },
-  { name: "Solar", color: "#f2b93f" },
-  { name: "Cobalt", color: "#477fce" },
-  { name: "Pulse", color: "#dc68a8" },
-  { name: "Arctique", color: "#e8ece7" }
+  { name: "Nova", color: "#8f73d8" },
+  { name: "Comète", color: "#d8688b" },
+  { name: "Solaire", color: "#d7a83f" },
+  { name: "Lagune", color: "#38a99a" },
+  { name: "Corail", color: "#c99083" }
 ] as const;
 
 let visualSequence = 0;
@@ -74,13 +78,26 @@ export class KartVisual {
   private readonly bodyPivot: TransformNode;
   private readonly frontWheelPivots: TransformNode[] = [];
   private readonly wheelDetails: TransformNode[] = [];
+  private readonly detailedFrontWheelPivots: TransformNode[] = [];
+  private readonly detailedWheelNodes: TransformNode[] = [];
   private readonly sparks: Mesh[] = [];
   private readonly boostFlames: Mesh[] = [];
   private readonly nameplate: Mesh;
   private readonly accentMaterial: StandardMaterial;
+  private readonly fallbackMeshes: Mesh[];
+  private detailedModel: AssetInstance | null = null;
+  private disposed = false;
   private wheelRotation = 0;
 
-  constructor(scene: Scene, colorIndex: number, pilotName = "Pilote") {
+  constructor(
+    scene: Scene,
+    colorIndex: number,
+    pilotName = "Pilote",
+    assetLibrary?: GameAssetLibrary,
+    onDetailedMeshesReady?: (
+      meshes: readonly AbstractMesh[]
+    ) => void
+  ) {
     const visualId = ++visualSequence;
     const accent =
       KART_PALETTES[colorIndex % KART_PALETTES.length]?.color ??
@@ -163,6 +180,8 @@ export class KartVisual {
     shadow.scaling.y = 0.58;
     shadow.position.y = 0.035;
     shadow.parent = this.root;
+
+    const fallbackMeshStart = scene.meshes.length;
 
     const undertray = MeshBuilder.CreateCapsule(
       "kart-undertray",
@@ -433,6 +452,9 @@ export class KartVisual {
     numberPlate.position.set(0, 0.9, 1.59);
     numberPlate.rotation.x = Math.PI / 2;
     numberPlate.parent = this.bodyPivot;
+    this.fallbackMeshes = scene.meshes
+      .slice(fallbackMeshStart)
+      .filter((mesh): mesh is Mesh => mesh instanceof Mesh);
 
     const nameTexture = new DynamicTexture(
       `kart-name-texture-${visualId}`,
@@ -466,7 +488,7 @@ export class KartVisual {
       scene
     );
     this.nameplate.material = nameMaterial;
-    this.nameplate.position.set(0, 2.35, 0);
+    this.nameplate.position.set(0, 3.15, 0);
     this.nameplate.billboardMode = Mesh.BILLBOARDMODE_ALL;
     this.nameplate.parent = this.root;
 
@@ -498,6 +520,14 @@ export class KartVisual {
       flame.parent = this.bodyPivot;
       flame.setEnabled(false);
       this.boostFlames.push(flame);
+    }
+
+    if (assetLibrary) {
+      void this.loadDetailedModel(
+        assetLibrary,
+        colorIndex,
+        onDetailedMeshesReady
+      );
     }
   }
 
@@ -537,14 +567,23 @@ export class KartVisual {
     this.bodyPivot.position.y =
       Math.sin(performance.now() * 0.012) * speedRatio * 0.025;
 
-    this.wheelRotation += state.speed * deltaSeconds / 0.32;
+    const wheelStep = state.speed * deltaSeconds / 0.32;
+    this.wheelRotation += wheelStep;
     for (const pivot of this.frontWheelPivots) {
+      pivot.rotation.y +=
+        (state.steer * 0.3 - pivot.rotation.y) *
+        (1 - Math.exp(-deltaSeconds * 12));
+    }
+    for (const pivot of this.detailedFrontWheelPivots) {
       pivot.rotation.y +=
         (state.steer * 0.3 - pivot.rotation.y) *
         (1 - Math.exp(-deltaSeconds * 12));
     }
     for (const detail of this.wheelDetails) {
       detail.rotation.x = this.wheelRotation;
+    }
+    for (const detail of this.detailedWheelNodes) {
+      detail.rotate(Axis.X, wheelStep, Space.LOCAL);
     }
 
     const chargeRatio = clamp01(state.driftCharge / 1.25);
@@ -577,6 +616,68 @@ export class KartVisual {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.detailedModel?.dispose();
+    this.detailedModel = null;
+    this.detailedFrontWheelPivots.length = 0;
+    this.detailedWheelNodes.length = 0;
     this.root.dispose(false, true);
+  }
+
+  private async loadDetailedModel(
+    assetLibrary: GameAssetLibrary,
+    colorIndex: number,
+    onDetailedMeshesReady?: (
+      meshes: readonly AbstractMesh[]
+    ) => void
+  ): Promise<void> {
+    const path =
+      KART_ASSET_PATHS[colorIndex % KART_ASSET_PATHS.length] ??
+      KART_ASSET_PATHS[0];
+
+    try {
+      const model = await assetLibrary.instantiate(path, "kart-model");
+      if (this.disposed) {
+        model.dispose();
+        return;
+      }
+
+      model.root.parent = this.bodyPivot;
+      model.root.position.set(0, 0.04, 0);
+      model.root.scaling.setAll(2.16);
+      for (const node of model.nodes) {
+        if (
+          !(node instanceof TransformNode) ||
+          !node.name.includes("wheel-")
+        ) {
+          continue;
+        }
+        if (node.name.includes("wheel-front-")) {
+          const steeringPivot = new TransformNode(
+            `${node.name}-steering`,
+            this.root.getScene()
+          );
+          steeringPivot.parent = node.parent;
+          steeringPivot.position.copyFrom(node.position);
+          node.parent = steeringPivot;
+          node.position.setAll(0);
+          this.detailedFrontWheelPivots.push(steeringPivot);
+        }
+        this.detailedWheelNodes.push(node);
+      }
+      for (const mesh of model.meshes) {
+        mesh.receiveShadows = true;
+      }
+      for (const fallbackMesh of this.fallbackMeshes) {
+        fallbackMesh.setEnabled(false);
+      }
+      this.detailedModel = model;
+      onDetailedMeshesReady?.(model.meshes);
+    } catch (error) {
+      console.warn(
+        "Le modèle de kart détaillé n'a pas pu être chargé.",
+        error
+      );
+    }
   }
 }

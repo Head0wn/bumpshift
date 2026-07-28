@@ -15,6 +15,11 @@ import {
   type TrackId,
   type Vec2
 } from "@bumpshift/shared";
+import {
+  RIVIERA_ASSETS,
+  type AssetInstance,
+  type GameAssetLibrary
+} from "./AssetLibrary";
 
 interface TrackFrame {
   point: Vector3;
@@ -42,6 +47,7 @@ interface TrackPalette {
 export interface TrackVisualHandle {
   readonly trackId: TrackId;
   readonly meshes: readonly AbstractMesh[];
+  readonly ready: Promise<void>;
   dispose(): void;
 }
 
@@ -63,11 +69,11 @@ const PALETTES: Record<TrackId, TrackPalette> = {
   },
   "riviera-royale": {
     skyTop: "#55a8dc",
-    skyBottom: "#f3d8ad",
-    fog: "#c9d9d5",
-    ground: "#b89a67",
-    groundDetail: "#d0b87c",
-    shoulder: "#b9ae97",
+    skyBottom: "#dbe8e1",
+    fog: "#cbd9d6",
+    ground: "#89957a",
+    groundDetail: "#b5aa82",
+    shoulder: "#b8b3a8",
     road: "#3d4145",
     roadDetail: "#656b6d",
     curb: "#cf4038",
@@ -334,6 +340,36 @@ const curvatureAt = (track: TrackDefinition, index: number): number => {
   return before.x * after.z - before.z * after.x;
 };
 
+const circularProgressDistance = (first: number, second: number): number => {
+  const difference = Math.abs(first - second);
+  return Math.min(difference, 1 - difference);
+};
+
+const averageNormal = (
+  first: TrackFrame,
+  second: TrackFrame
+): Vector3 => {
+  const combined = first.normal.add(second.normal);
+  return combined.lengthSquared() > 0.0001
+    ? combined.normalize()
+    : first.normal.clone();
+};
+
+const isRoadsidePlacementClear = (
+  track: TrackDefinition,
+  sourceProgress: number,
+  position: Vector3,
+  margin = 1.15
+): boolean => {
+  const nearest = projectToTrack(position.x, position.z, track.id);
+  const competingSection =
+    circularProgressDistance(sourceProgress, nearest.progress) > 0.045;
+  return (
+    !competingSection ||
+    nearest.distance > track.width * 0.5 + margin
+  );
+};
+
 const createCurbs = (
   scene: Scene,
   track: TrackDefinition,
@@ -354,9 +390,22 @@ const createCurbs = (
     const frame = frameAt(track, index);
     const future = frameAt(track, index + step);
     const midpoint = frame.point.add(future.point).scale(0.5);
-    const depth = Vector3.Distance(frame.point, future.point) * 1.06;
-    const heading = Math.atan2(frame.tangent.x, frame.tangent.z);
+    const segment = future.point.subtract(frame.point);
+    const depth = segment.length() * 1.04;
+    const heading = Math.atan2(segment.x, segment.z);
+    const normal = averageNormal(frame, future);
     const side = turn > 0 ? -1 : 1;
+    const position = midpoint
+      .add(normal.scale(side * (track.width * 0.5 - 0.19)))
+      .add(new Vector3(0, 0.115, 0));
+    const progress =
+      ((index + step * 0.5) % track.centerline.length) /
+      track.centerline.length;
+    if (
+      !isRoadsidePlacementClear(track, progress, position, 0.35)
+    ) {
+      continue;
+    }
     const curb = MeshBuilder.CreateBox(
       "curb-segment",
       {
@@ -366,9 +415,7 @@ const createCurbs = (
       },
       scene
     );
-    curb.position = midpoint
-      .add(frame.normal.scale(side * (track.width * 0.5 - 0.19)))
-      .add(new Vector3(0, 0.115, 0));
+    curb.position = position;
     curb.rotation.y = heading;
     ((index / step) % 2 === 0 ? redMeshes : creamMeshes).push(curb);
   }
@@ -403,14 +450,31 @@ const createBarriers = (
     const frame = frameAt(track, index);
     const future = frameAt(track, index + step);
     const midpoint = frame.point.add(future.point).scale(0.5);
-    const depth = Vector3.Distance(frame.point, future.point) * 1.08;
-    const heading = Math.atan2(frame.tangent.x, frame.tangent.z);
+    const segment = future.point.subtract(frame.point);
+    const depth = segment.length() * 1.06;
+    const heading = Math.atan2(segment.x, segment.z);
+    const normal = averageNormal(frame, future);
     const sides =
       track.id === "riviera-royale"
         ? [-1, 1]
         : [turn > 0 ? 1 : -1];
 
     for (const side of sides) {
+      const position = midpoint
+        .add(normal.scale(side * (track.width * 0.5 + 0.86)))
+        .add(
+          new Vector3(
+            0,
+            track.id === "riviera-royale" ? 0.5 : 0.34,
+            0
+          )
+        );
+      const progress =
+        ((index + step * 0.5) % track.centerline.length) /
+        track.centerline.length;
+      if (!isRoadsidePlacementClear(track, progress, position)) {
+        continue;
+      }
       const barrier = MeshBuilder.CreateBox(
         "barrier-panel",
         {
@@ -420,15 +484,7 @@ const createBarriers = (
         },
         scene
       );
-      barrier.position = midpoint
-        .add(frame.normal.scale(side * (track.width * 0.5 + 0.86)))
-        .add(
-          new Vector3(
-            0,
-            track.id === "riviera-royale" ? 0.5 : 0.34,
-            0
-          )
-        );
+      barrier.position = position;
       barrier.rotation.y = heading;
       const accent =
         track.id === "riviera-royale" &&
@@ -442,7 +498,7 @@ const createBarriers = (
           scene
         );
         post.position = frame.point
-          .add(frame.normal.scale(side * (track.width * 0.5 + 0.86)))
+          .add(normal.scale(side * (track.width * 0.5 + 0.86)))
           .add(new Vector3(0, 0.42, 0));
         posts.push(post);
       }
@@ -527,6 +583,7 @@ const createStartArch = (
 ): void => {
   const frame = frameAt(track, 0);
   const heading = Math.atan2(frame.tangent.x, frame.tangent.z);
+  const archCenter = frame.point.add(frame.tangent.scale(5.2));
   const frameMaterial = material(
     scene,
     "start-arch-material",
@@ -546,7 +603,7 @@ const createStartArch = (
       scene
     );
     pillar.material = frameMaterial;
-    pillar.position = frame.point
+    pillar.position = archCenter
       .add(frame.normal.scale(side * (track.width * 0.5 + 1.15)))
       .add(new Vector3(0, 2.9, 0));
     pillar.rotation.y = heading;
@@ -558,7 +615,7 @@ const createStartArch = (
     scene
   );
   beam.material = frameMaterial;
-  beam.position = frame.point.add(new Vector3(0, 5.35, 0));
+  beam.position = archCenter.add(new Vector3(0, 5.35, 0));
   beam.rotation.y = heading;
 
   const stripe = MeshBuilder.CreateBox(
@@ -567,7 +624,7 @@ const createStartArch = (
     scene
   );
   stripe.material = highlightMaterial;
-  stripe.position = frame.point.add(new Vector3(0, 5.67, 0));
+  stripe.position = archCenter.add(new Vector3(0, 5.67, 0));
   stripe.rotation.y = heading;
 
   const texture = new DynamicTexture(
@@ -600,7 +657,7 @@ const createStartArch = (
     scene
   );
   banner.material = bannerMaterial;
-  banner.position = frame.point
+  banner.position = archCenter
     .add(frame.tangent.scale(0.34))
     .add(new Vector3(0, 5.28, 0));
   banner.rotation.y = heading;
@@ -737,8 +794,10 @@ const createTunnel = (
     const frame = frameAt(track, index);
     const future = frameAt(track, Math.min(end, index + step));
     const midpoint = frame.point.add(future.point).scale(0.5);
-    const depth = Vector3.Distance(frame.point, future.point) * 1.08;
-    const heading = Math.atan2(frame.tangent.x, frame.tangent.z);
+    const segment = future.point.subtract(frame.point);
+    const depth = segment.length() * 1.06;
+    const heading = Math.atan2(segment.x, segment.z);
+    const normal = averageNormal(frame, future);
 
     for (const side of [-1, 1]) {
       const wall = MeshBuilder.CreateBox(
@@ -747,7 +806,7 @@ const createTunnel = (
         scene
       );
       wall.position = midpoint
-        .add(frame.normal.scale(side * (track.width * 0.5 + 0.58)))
+        .add(normal.scale(side * (track.width * 0.5 + 0.58)))
         .add(new Vector3(0, 2.4, 0));
       wall.rotation.y = heading;
       walls.push(wall);
@@ -1016,9 +1075,381 @@ const createRivieraScenery = (
   createTunnel(scene, track, palette);
 };
 
+const createRivieraVerticalSliceBase = (
+  scene: Scene,
+  track: TrackDefinition,
+  palette: TrackPalette
+): void => {
+  const waterMaterial = material(
+    scene,
+    "harbor-water-material",
+    palette.water,
+    0.08
+  );
+  waterMaterial.alpha = 0.94;
+  waterMaterial.specularColor = Color3.FromHexString("#d7f2ef");
+  waterMaterial.specularPower = 96;
+  const water = MeshBuilder.CreateGround(
+    "harbor-water",
+    { width: 166, height: 58, subdivisions: 1 },
+    scene
+  );
+  water.material = waterMaterial;
+  water.position.set(10, -0.18, -91);
+  water.receiveShadows = true;
+  water.isPickable = false;
+
+  const quayMaterial = material(scene, "harbor-quay", "#d7c8a9");
+  quayMaterial.specularColor = Color3.Black();
+  const quay = MeshBuilder.CreateBox(
+    "harbor-quay",
+    { width: 148, height: 0.62, depth: 2.6 },
+    scene
+  );
+  quay.material = quayMaterial;
+  quay.position.set(8, 0.13, -67.4);
+  quay.receiveShadows = true;
+
+  const palmTrunk = material(scene, "palm-trunks", "#705239");
+  const palmLeaf = material(scene, "palm-leaves", "#267655");
+  const trunks: Mesh[] = [];
+  const leaves: Mesh[] = [];
+  for (let index = 0; index < 18; index += 1) {
+    const sampleIndex = (index * 41 + 24) % track.centerline.length;
+    const frame = frameAt(track, sampleIndex);
+    const side = index % 2 === 0 ? 1 : -1;
+    const position = safeRoadsidePosition(
+      track,
+      frame,
+      side,
+      track.width * 0.5 + 6.4
+    );
+    if (!position) {
+      continue;
+    }
+    const height = 5.2 + (index % 3) * 0.58;
+    const trunk = MeshBuilder.CreateCylinder(
+      "palm-trunk",
+      {
+        diameterTop: 0.16,
+        diameterBottom: 0.42,
+        height,
+        tessellation: 10
+      },
+      scene
+    );
+    trunk.position = new Vector3(
+      position.x,
+      Math.max(0, frame.point.y - 0.3) + height * 0.5,
+      position.z
+    );
+    trunks.push(trunk);
+
+    for (let leafIndex = 0; leafIndex < 7; leafIndex += 1) {
+      const leaf = MeshBuilder.CreateCapsule(
+        "palm-leaf",
+        {
+          radius: 0.08,
+          height: 2.65,
+          tessellation: 8,
+          subdivisions: 1
+        },
+        scene
+      );
+      leaf.position = new Vector3(
+        position.x,
+        trunk.position.y + height * 0.5,
+        position.z
+      );
+      leaf.rotation.y = (leafIndex / 7) * Math.PI * 2;
+      leaf.rotation.x = Math.PI * 0.38;
+      leaves.push(leaf);
+    }
+  }
+  mergeByMaterial(trunks, "palm-trunks-merged", palmTrunk);
+  mergeByMaterial(leaves, "palm-leaves-merged", palmLeaf);
+
+  createTunnel(scene, track, palette);
+};
+
+interface AssetPlacement {
+  path: string;
+  label: string;
+  position: Vector3;
+  rotationY: number;
+  scaling: Vector3;
+  castsShadow?: boolean;
+}
+
+const createRivieraAssetScenery = async (
+  assets: GameAssetLibrary,
+  track: TrackDefinition,
+  instances: AssetInstance[],
+  assetMeshes: AbstractMesh[],
+  isDisposed: () => boolean
+): Promise<void> => {
+  const placements: AssetPlacement[] = [];
+  const detailedBuildings = [
+    RIVIERA_ASSETS.buildingA,
+    RIVIERA_ASSETS.buildingB,
+    RIVIERA_ASSETS.buildingC,
+    RIVIERA_ASSETS.buildingD,
+    RIVIERA_ASSETS.buildingE,
+    RIVIERA_ASSETS.buildingH,
+    RIVIERA_ASSETS.buildingJ
+  ] as const;
+  const distantBuildings = [
+    RIVIERA_ASSETS.distantBuildingA,
+    RIVIERA_ASSETS.distantBuildingB,
+    RIVIERA_ASSETS.distantBuildingC,
+    RIVIERA_ASSETS.distantBuildingG,
+    RIVIERA_ASSETS.distantBuildingH
+  ] as const;
+
+  let cityIndex = 0;
+  for (let index = 8; index < track.centerline.length; index += 20) {
+    const frame = frameAt(track, index);
+    const side = cityIndex % 4 < 2 ? 1 : -1;
+    const position = safeRoadsidePosition(
+      track,
+      frame,
+      side,
+      track.width * 0.5 + 10.5 + (cityIndex % 3) * 3.2
+    );
+    if (!position) {
+      cityIndex += 1;
+      continue;
+    }
+    const scale = 7.2 + (cityIndex % 5) * 0.92;
+    placements.push({
+      path:
+        detailedBuildings[cityIndex % detailedBuildings.length] ??
+        RIVIERA_ASSETS.buildingA,
+      label: "riviera-building",
+      position: new Vector3(position.x, 0, position.z),
+      rotationY:
+        Math.atan2(frame.tangent.x, frame.tangent.z) +
+        (side > 0 ? Math.PI : 0),
+      scaling: new Vector3(
+        scale,
+        scale * (1.05 + (cityIndex % 3) * 0.09),
+        scale
+      )
+    });
+    cityIndex += 1;
+  }
+
+  for (let index = 0; index < 22; index += 1) {
+    const angle = (index / 22) * Math.PI * 2;
+    const radius = 95 + (index % 4) * 8;
+    const scale = 9.5 + (index % 5) * 2.1;
+    placements.push({
+      path:
+        distantBuildings[index % distantBuildings.length] ??
+        RIVIERA_ASSETS.distantBuildingA,
+      label: "riviera-skyline",
+      position: new Vector3(
+        Math.cos(angle) * radius,
+        0,
+        Math.sin(angle) * radius + 8
+      ),
+      rotationY: -angle + Math.PI * 0.5,
+      scaling: new Vector3(
+        scale,
+        scale * (1.05 + (index % 4) * 0.16),
+        scale
+      ),
+      castsShadow: false
+    });
+  }
+
+  const barrierStep = 6;
+  for (
+    let index = 0;
+    index < track.centerline.length;
+    index += barrierStep
+  ) {
+    const frame = frameAt(track, index);
+    const future = frameAt(track, index + barrierStep);
+    const midpoint = frame.point.add(future.point).scale(0.5);
+    const segment = future.point.subtract(frame.point);
+    const heading = Math.atan2(segment.x, segment.z);
+    const normal = averageNormal(frame, future);
+    const progress =
+      ((index + barrierStep * 0.5) % track.centerline.length) /
+      track.centerline.length;
+
+    for (const side of [-1, 1]) {
+      const position = midpoint.add(
+        normal.scale(side * (track.width * 0.5 + 0.55))
+      );
+      if (!isRoadsidePlacementClear(track, progress, position, 1.45)) {
+        continue;
+      }
+      const sequence =
+        Math.floor(index / barrierStep) + (side > 0 ? 3 : 0);
+      const path =
+        sequence % 11 === 0
+          ? RIVIERA_ASSETS.barrierRed
+          : sequence % 11 === 5
+            ? RIVIERA_ASSETS.barrierWhite
+            : RIVIERA_ASSETS.barrierWall;
+      placements.push({
+        path,
+        label: "riviera-safety-wall",
+        position: position.add(new Vector3(0, 0.04, 0)),
+        rotationY: heading - Math.PI * 0.5,
+        scaling: new Vector3(
+          Math.max(2.4, segment.length() * 1.06),
+          6.1,
+          6.1
+        ),
+        castsShadow: false
+      });
+    }
+  }
+
+  const start = frameAt(track, 0);
+  const startHeading = Math.atan2(start.tangent.x, start.tangent.z);
+  placements.push({
+    path: RIVIERA_ASSETS.startLights,
+    label: "riviera-start-lights",
+    position: start.point
+      .add(start.tangent.scale(6.2))
+      .add(new Vector3(0, 0.05, 0)),
+    rotationY: startHeading - Math.PI * 0.5,
+    scaling: new Vector3(10.4, 8.4, 8.4)
+  });
+
+  for (let index = 14; index < track.centerline.length; index += 31) {
+    const frame = frameAt(track, index);
+    const side = Math.floor(index / 31) % 2 === 0 ? 1 : -1;
+    const position = safeRoadsidePosition(
+      track,
+      frame,
+      side,
+      track.width * 0.5 + 3.2
+    );
+    if (!position) {
+      continue;
+    }
+    placements.push({
+      path: RIVIERA_ASSETS.lamp,
+      label: "riviera-street-lamp",
+      position,
+      rotationY: Math.atan2(frame.tangent.x, frame.tangent.z),
+      scaling: new Vector3(6.4, 6.4, 6.4),
+      castsShadow: false
+    });
+  }
+
+  for (const [order, sampleIndex] of [16, 142, 252].entries()) {
+    const frame = frameAt(track, sampleIndex);
+    const side = order % 2 === 0 ? -1 : 1;
+    const position = safeRoadsidePosition(
+      track,
+      frame,
+      side,
+      track.width * 0.5 + 9.2
+    );
+    if (!position) {
+      continue;
+    }
+    placements.push({
+      path: RIVIERA_ASSETS.grandstand,
+      label: "riviera-grandstand",
+      position,
+      rotationY:
+        Math.atan2(frame.tangent.x, frame.tangent.z) +
+        (side > 0 ? Math.PI : 0),
+      scaling: new Vector3(8.5, 8.5, 8.5)
+    });
+  }
+
+  for (let order = 0; order < 4; order += 1) {
+    const frame = frameAt(track, 10 + order * 8);
+    const position = safeRoadsidePosition(
+      track,
+      frame,
+      -1,
+      track.width * 0.5 + 7.8
+    );
+    if (!position) {
+      continue;
+    }
+    placements.push({
+      path:
+        order < 2 ? RIVIERA_ASSETS.pits : RIVIERA_ASSETS.tent,
+      label: "riviera-paddock",
+      position,
+      rotationY: Math.atan2(frame.tangent.x, frame.tangent.z),
+      scaling: new Vector3(7.2, 7.2, 7.2)
+    });
+  }
+
+  const boats = [
+    RIVIERA_ASSETS.sailboatA,
+    RIVIERA_ASSETS.speedboatD,
+    RIVIERA_ASSETS.sailboatB,
+    RIVIERA_ASSETS.speedboatA,
+    RIVIERA_ASSETS.speedboatF,
+    RIVIERA_ASSETS.speedboatD,
+    RIVIERA_ASSETS.sailboatA
+  ] as const;
+  for (let index = 0; index < boats.length; index += 1) {
+    const path = boats[index] ?? RIVIERA_ASSETS.speedboatA;
+    const isSailboat =
+      path === RIVIERA_ASSETS.sailboatA ||
+      path === RIVIERA_ASSETS.sailboatB;
+    const scale = isSailboat ? 3.05 : 2.15;
+    placements.push({
+      path,
+      label: "riviera-watercraft",
+      position: new Vector3(
+        -42 + index * 15,
+        -0.42,
+        -82 - (index % 2) * 12
+      ),
+      rotationY: index % 2 === 0 ? 0.08 : Math.PI + 0.06,
+      scaling: new Vector3(scale, scale, scale),
+      castsShadow: false
+    });
+  }
+
+  await Promise.all(
+    placements.map(async (placement) => {
+      try {
+        const instance = await assets.instantiate(
+          placement.path,
+          placement.label
+        );
+        if (isDisposed()) {
+          instance.dispose();
+          return;
+        }
+        instance.root.position.copyFrom(placement.position);
+        instance.root.rotation.y = placement.rotationY;
+        instance.root.scaling.copyFrom(placement.scaling);
+        for (const mesh of instance.meshes) {
+          mesh.receiveShadows = true;
+          mesh.metadata = {
+            ...mesh.metadata,
+            castsShadow: placement.castsShadow !== false
+          };
+          assetMeshes.push(mesh);
+        }
+        instances.push(instance);
+      } catch (error) {
+        console.warn(`Asset 3D ignoré : ${placement.label}.`, error);
+      }
+    })
+  );
+};
+
 export function createTrackVisual(
   scene: Scene,
-  trackId: TrackId
+  trackId: TrackId,
+  assets?: GameAssetLibrary
 ): TrackVisualHandle {
   const track = getTrackDefinition(trackId);
   const palette = PALETTES[track.id];
@@ -1069,7 +1500,7 @@ export function createTrackVisual(
     scene,
     track,
     "track-shoulder",
-    track.width * 0.5 + 1.15,
+    track.width * 0.5 + (track.id === "riviera-royale" ? 0.62 : 1.15),
     0.015,
     shoulderMaterial
   );
@@ -1082,16 +1513,16 @@ export function createTrackVisual(
     roadMaterial
   );
 
-  createRetainingWalls(scene, track, palette);
   createRoadMarkings(scene, track);
   createCurbs(scene, track, palette);
-  createBarriers(scene, track, palette);
   createStartGrid(scene, track);
-  createStartArch(scene, track, palette);
 
   if (track.id === "riviera-royale") {
-    createRivieraScenery(scene, track, palette);
+    createRivieraVerticalSliceBase(scene, track, palette);
   } else {
+    createRetainingWalls(scene, track, palette);
+    createBarriers(scene, track, palette);
+    createStartArch(scene, track, palette);
     createAuroraScenery(scene, track);
   }
 
@@ -1103,7 +1534,9 @@ export function createTrackVisual(
     fogColor: palette.fog
   };
 
-  const createdMeshes = scene.meshes.filter((mesh) => !existingMeshes.has(mesh));
+  const createdMeshes = scene.meshes.filter(
+    (mesh) => !existingMeshes.has(mesh)
+  );
   const createdMaterials = scene.materials.filter(
     (trackMaterial) => !existingMaterials.has(trackMaterial)
   );
@@ -1111,15 +1544,35 @@ export function createTrackVisual(
     (texture) => !existingTextures.has(texture)
   );
   let disposed = false;
+  const assetInstances: AssetInstance[] = [];
+  const assetMeshes: AbstractMesh[] = [];
+  const ready =
+    track.id === "riviera-royale" && assets
+      ? createRivieraAssetScenery(
+          assets,
+          track,
+          assetInstances,
+          assetMeshes,
+          () => disposed
+        )
+      : Promise.resolve();
 
   return {
     trackId: track.id,
-    meshes: createdMeshes,
+    get meshes(): readonly AbstractMesh[] {
+      return [...createdMeshes, ...assetMeshes];
+    },
+    ready,
     dispose(): void {
       if (disposed) {
         return;
       }
       disposed = true;
+      for (const instance of assetInstances) {
+        instance.dispose();
+      }
+      assetInstances.length = 0;
+      assetMeshes.length = 0;
       for (const mesh of createdMeshes) {
         mesh.dispose(false, false);
       }

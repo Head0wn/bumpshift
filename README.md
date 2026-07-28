@@ -12,7 +12,7 @@ La branche de développement contient maintenant une boucle de course multijoueu
 - deux circuits 3D procéduraux : Circuit Aurore et Riviera Royale ;
 - circuits en relief avec ciel diurne, ombres, murs de soutènement et matériaux procéduraux ;
 - décors dédiés (forêt boréale, principauté, port, yachts et tunnel) ;
-- karts détaillés avec huit livrées visibles par tous les pilotes ;
+- cinq karts 3D détaillés avec roues animées, visibles par tous les pilotes ;
 - kart arcade avec accélération, freinage et marche arrière ;
 - dérapage chargé avec trois niveaux de mini-turbo ;
 - caméra dynamique, HUD et commandes clavier, tactiles et manette ;
@@ -56,3 +56,5 @@ packages/shared  protocole, circuit et simulation déterministe
 ```
 
 Consulter [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour les décisions réseau.
+Les ressources 3D externes et leurs licences sont recensées dans
+[THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md).
