@@ -1,6 +1,10 @@
-import type { KartInput, KartState } from "./protocol.js";
-import { CHECKPOINT_COUNT, TOTAL_LAPS } from "./protocol.js";
-import { projectToTrack, TRACK_WIDTH } from "./track.js";
+import type { KartInput, KartState, TrackId } from "./protocol.js";
+import {
+  CHECKPOINT_COUNT,
+  DEFAULT_TRACK_ID,
+  TOTAL_LAPS
+} from "./protocol.js";
+import { getTrackDefinition, projectToTrack } from "./track.js";
 
 export const KART_TUNING = Object.freeze({
   acceleration: 20,
@@ -100,9 +104,13 @@ export function raceProgressScore(state: Readonly<KartState>): number {
   return (state.lap - 1) + normalizedProgress;
 }
 
-const constrainKartToTrack = (state: KartState): KartState => {
-  const projection = projectToTrack(state.x, state.z);
-  const trackLimit = TRACK_WIDTH * 0.5 - 0.7;
+const constrainKartToTrack = (
+  state: KartState,
+  trackId: TrackId
+): KartState => {
+  const track = getTrackDefinition(trackId);
+  const projection = projectToTrack(state.x, state.z, trackId);
+  const trackLimit = track.width * 0.5 - 0.7;
 
   if (projection.distance <= trackLimit) {
     return state;
@@ -118,7 +126,8 @@ const constrainKartToTrack = (state: KartState): KartState => {
 };
 
 export function resolveKartCollisions(
-  sourceStates: readonly Readonly<KartState>[]
+  sourceStates: readonly Readonly<KartState>[],
+  trackId: TrackId = DEFAULT_TRACK_ID
 ): KartState[] {
   const states = sourceStates.map((state) => ({ ...state }));
   const minimumDistance = KART_COLLISION_RADIUS * 2;
@@ -215,13 +224,14 @@ export function resolveKartCollisions(
     }
   }
 
-  return states.map(constrainKartToTrack);
+  return states.map((state) => constrainKartToTrack(state, trackId));
 }
 
 export function stepKart(
   current: Readonly<KartState>,
   input: Readonly<KartInput>,
-  deltaSeconds: number
+  deltaSeconds: number,
+  trackId: TrackId = DEFAULT_TRACK_ID
 ): KartState {
   const dt = clamp(deltaSeconds, 0, 0.05);
   let speed = current.speed;
@@ -304,15 +314,16 @@ export function stepKart(
   x += Math.sin(heading) * speed * dt;
   z += Math.cos(heading) * speed * dt;
 
-  let projection = projectToTrack(x, z);
-  const trackLimit = TRACK_WIDTH * 0.5 - 0.7;
+  const track = getTrackDefinition(trackId);
+  let projection = projectToTrack(x, z, trackId);
+  const trackLimit = track.width * 0.5 - 0.7;
 
   if (projection.distance > trackLimit) {
     const side = Math.sign(projection.signedDistance) || 1;
     x = projection.point.x + projection.normal.x * trackLimit * side;
     z = projection.point.z + projection.normal.z * trackLimit * side;
     speed *= KART_TUNING.boundarySpeedRetention;
-    projection = projectToTrack(x, z);
+    projection = projectToTrack(x, z, trackId);
   }
 
   const raceProgress = advanceRaceProgress(

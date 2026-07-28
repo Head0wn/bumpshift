@@ -6,9 +6,13 @@ import {
   FIXED_TIMESTEP,
   KART_COLLISION_RADIUS,
   KART_TUNING,
+  getTrackDefinition,
+  projectToTrack,
   resolveKartCollisions,
   sanitizeKartInput,
+  sanitizeTrackId,
   stepKart,
+  trackLength,
   TRACK_WIDTH
 } from "./index.js";
 
@@ -206,5 +210,68 @@ describe("simulation de kart", () => {
     ).toBeGreaterThanOrEqual(KART_COLLISION_RADIUS * 2 - 0.01);
     expect(resolvedFirst?.speed ?? 99).toBeLessThan(first.speed);
     expect(resolvedSecond?.speed ?? 0).toBeGreaterThan(second.speed);
+  });
+
+  it("expose deux circuits fermés et jouables", () => {
+    for (const trackId of ["aurora", "riviera-royale"] as const) {
+      const track = getTrackDefinition(trackId);
+      const spawn = createSpawnState(0, trackId);
+      const projection = projectToTrack(spawn.x, spawn.z, trackId);
+      let intersections = 0;
+
+      for (let firstIndex = 0; firstIndex < track.centerline.length; firstIndex += 1) {
+        const firstStart = track.centerline[firstIndex];
+        const firstEnd =
+          track.centerline[(firstIndex + 1) % track.centerline.length];
+        if (!firstStart || !firstEnd) {
+          continue;
+        }
+
+        for (
+          let secondIndex = firstIndex + 1;
+          secondIndex < track.centerline.length;
+          secondIndex += 1
+        ) {
+          if (
+            secondIndex === firstIndex + 1 ||
+            (firstIndex === 0 &&
+              secondIndex === track.centerline.length - 1)
+          ) {
+            continue;
+          }
+
+          const secondStart = track.centerline[secondIndex];
+          const secondEnd =
+            track.centerline[(secondIndex + 1) % track.centerline.length];
+          if (!secondStart || !secondEnd) {
+            continue;
+          }
+
+          const orientation = (
+            start: typeof firstStart,
+            end: typeof firstStart,
+            point: typeof firstStart
+          ): number =>
+            (end.x - start.x) * (point.z - start.z) -
+            (end.z - start.z) * (point.x - start.x);
+          if (
+            orientation(firstStart, firstEnd, secondStart) *
+              orientation(firstStart, firstEnd, secondEnd) <
+              0 &&
+            orientation(secondStart, secondEnd, firstStart) *
+              orientation(secondStart, secondEnd, firstEnd) <
+              0
+          ) {
+            intersections += 1;
+          }
+        }
+      }
+
+      expect(track.centerline.length).toBeGreaterThan(150);
+      expect(trackLength(trackId)).toBeGreaterThan(200);
+      expect(projection.distance).toBeLessThan(track.width * 0.5);
+      expect(intersections).toBe(0);
+    }
+    expect(sanitizeTrackId("inconnu")).toBe("aurora");
   });
 });

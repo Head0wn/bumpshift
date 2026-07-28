@@ -5,9 +5,11 @@ import {
 } from "@colyseus/sdk";
 import {
   sanitizeRacePhase,
+  sanitizeTrackId,
   type KartInput,
   type PlayerSnapshot,
-  type RaceSnapshot
+  type RaceSnapshot,
+  type TrackId
 } from "@bumpshift/shared";
 
 interface WirePlayer {
@@ -35,6 +37,7 @@ interface WirePlayer {
 interface WireState {
   players: unknown;
   phase: string;
+  trackId: string;
   serverTick: number;
   phaseEndsAtTick: number;
   raceStartedAtTick: number;
@@ -87,6 +90,7 @@ const snapshotPlayer = (
 
 const snapshotRace = (state: WireState): RaceSnapshot => ({
   phase: sanitizeRacePhase(state.phase),
+  trackId: sanitizeTrackId(state.trackId),
   serverTick: state.serverTick,
   phaseEndsAtTick: state.phaseEndsAtTick,
   raceStartedAtTick: state.raceStartedAtTick,
@@ -143,11 +147,15 @@ export class NetworkSession {
 
   static async connect(
     playerName: string,
+    trackId: TrackId,
+    colorIndex: number,
     events: NetworkEvents
   ): Promise<NetworkSession> {
     const client = new Client(endpointFromEnvironment());
     const room = await client.joinOrCreate("race", {
-      name: playerName
+      name: playerName,
+      trackId,
+      colorIndex
     });
     return new NetworkSession(room, events);
   }

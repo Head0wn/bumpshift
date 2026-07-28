@@ -1,4 +1,9 @@
-import type { KartState } from "./protocol.js";
+import {
+  DEFAULT_TRACK_ID,
+  sanitizeTrackId,
+  type KartState,
+  type TrackId
+} from "./protocol.js";
 
 export interface Vec2 {
   x: number;
@@ -14,11 +19,21 @@ export interface TrackProjection {
   progress: number;
 }
 
-export const TRACK_NAME = "Circuit Aurore";
-export const TRACK_WIDTH = 15;
+export interface TrackDefinition {
+  id: TrackId;
+  name: string;
+  location: string;
+  description: string;
+  difficulty: "Accessible" | "Technique";
+  width: number;
+  samplesPerSegment: number;
+  controlPoints: readonly Vec2[];
+  centerline: readonly Vec2[];
+}
+
 export const TRACK_SAMPLES_PER_SEGMENT = 14;
 
-export const TRACK_CONTROL_POINTS: readonly Vec2[] = Object.freeze([
+const AURORA_CONTROL_POINTS: readonly Vec2[] = Object.freeze([
   { x: 0, z: -46 },
   { x: 34, z: -48 },
   { x: 59, z: -31 },
@@ -32,6 +47,51 @@ export const TRACK_CONTROL_POINTS: readonly Vec2[] = Object.freeze([
   { x: -67, z: -7 },
   { x: -50, z: -34 },
   { x: -23, z: -45 }
+]);
+
+// Une interprétation arcade d'une principauté portuaire : montée vers les
+// hauteurs, épingle serrée, tunnel rapide, chicane du port et dernier virage
+// autour des terrasses. Le tracé est original mais son rythme est familier.
+const RIVIERA_ROYALE_CONTROL_POINTS: readonly Vec2[] = Object.freeze([
+  { x: -45, z: -55 },
+  { x: -28, z: -45 },
+  { x: -5, z: -43 },
+  { x: 22, z: -43 },
+  { x: 40, z: -38 },
+  { x: 46, z: -27 },
+  { x: 36, z: -17 },
+  { x: 18, z: -10 },
+  { x: -5, z: -10 },
+  { x: -35, z: -4 },
+  { x: -62, z: 7 },
+  { x: -72, z: 25 },
+  { x: -64, z: 47 },
+  { x: -42, z: 62 },
+  { x: -14, z: 65 },
+  { x: 12, z: 57 },
+  { x: 27, z: 45 },
+  { x: 20, z: 35 },
+  { x: 5, z: 33 },
+  { x: -13, z: 41 },
+  { x: -31, z: 39 },
+  { x: -47, z: 29 },
+  { x: -47, z: 17 },
+  { x: -36, z: 9 },
+  { x: -20, z: 5 },
+  { x: -5, z: 10 },
+  { x: 13, z: 16 },
+  { x: 33, z: 18 },
+  { x: 51, z: 13 },
+  { x: 68, z: 5 },
+  { x: 70, z: -8 },
+  { x: 64, z: -18 },
+  { x: 72, z: -27 },
+  { x: 66, z: -39 },
+  { x: 60, z: -52 },
+  { x: 48, z: -62 },
+  { x: 25, z: -65 },
+  { x: -2, z: -64 },
+  { x: -30, z: -61 }
 ]);
 
 const getPoint = (points: readonly Vec2[], index: number): Vec2 => {
@@ -92,21 +152,81 @@ export function sampleClosedTrack(
   return sampled;
 }
 
-export const TRACK_CENTERLINE: readonly Vec2[] = Object.freeze(
-  sampleClosedTrack(TRACK_CONTROL_POINTS)
+const defineTrack = (
+  definition: Omit<TrackDefinition, "centerline">
+): TrackDefinition =>
+  Object.freeze({
+    ...definition,
+    centerline: Object.freeze(
+      sampleClosedTrack(
+        definition.controlPoints,
+        definition.samplesPerSegment
+      )
+    )
+  });
+
+export const TRACKS: readonly TrackDefinition[] = Object.freeze([
+  defineTrack({
+    id: "aurora",
+    name: "Circuit Aurore",
+    location: "Forêt boréale",
+    description: "Rapide, large et idéal pour maîtriser le drift.",
+    difficulty: "Accessible",
+    width: 15,
+    samplesPerSegment: 14,
+    controlPoints: AURORA_CONTROL_POINTS
+  }),
+  defineTrack({
+    id: "riviera-royale",
+    name: "Riviera Royale",
+    location: "Principauté solaire",
+    description: "Épingles, tunnel et barrières au bord du port.",
+    difficulty: "Technique",
+    width: 10.2,
+    samplesPerSegment: 10,
+    controlPoints: RIVIERA_ROYALE_CONTROL_POINTS
+  })
+]);
+
+const TRACK_BY_ID = new Map(
+  TRACKS.map((track) => [track.id, track] as const)
 );
 
-export function projectToTrack(x: number, z: number): TrackProjection {
+export function getTrackDefinition(value: TrackId | string): TrackDefinition {
+  return (
+    TRACK_BY_ID.get(sanitizeTrackId(value)) ??
+    TRACK_BY_ID.get(DEFAULT_TRACK_ID) ??
+    TRACKS[0]
+  ) as TrackDefinition;
+}
+
+export function trackLength(trackId: TrackId = DEFAULT_TRACK_ID): number {
+  const centerline = getTrackDefinition(trackId).centerline;
+  let length = 0;
+  for (let index = 0; index < centerline.length; index += 1) {
+    const start = getPoint(centerline, index);
+    const end = getPoint(centerline, index + 1);
+    length += Math.hypot(end.x - start.x, end.z - start.z);
+  }
+  return length;
+}
+
+export function projectToTrack(
+  x: number,
+  z: number,
+  trackId: TrackId = DEFAULT_TRACK_ID
+): TrackProjection {
+  const centerline = getTrackDefinition(trackId).centerline;
   let bestDistanceSquared = Number.POSITIVE_INFINITY;
-  let bestPoint: Vec2 = TRACK_CENTERLINE[0] ?? { x: 0, z: 0 };
+  let bestPoint: Vec2 = centerline[0] ?? { x: 0, z: 0 };
   let bestTangent: Vec2 = { x: 0, z: 1 };
   let bestNormal: Vec2 = { x: -1, z: 0 };
   let bestSignedDistance = 0;
   let bestProgress = 0;
 
-  for (let index = 0; index < TRACK_CENTERLINE.length; index += 1) {
-    const start = getPoint(TRACK_CENTERLINE, index);
-    const end = getPoint(TRACK_CENTERLINE, index + 1);
+  for (let index = 0; index < centerline.length; index += 1) {
+    const start = getPoint(centerline, index);
+    const end = getPoint(centerline, index + 1);
     const segmentX = end.x - start.x;
     const segmentZ = end.z - start.z;
     const lengthSquared = segmentX * segmentX + segmentZ * segmentZ;
@@ -148,7 +268,7 @@ export function projectToTrack(x: number, z: number): TrackProjection {
     bestTangent = tangent;
     bestNormal = normal;
     bestSignedDistance = deltaX * normal.x + deltaZ * normal.z;
-    bestProgress = (index + t) / TRACK_CENTERLINE.length;
+    bestProgress = (index + t) / centerline.length;
   }
 
   return {
@@ -161,21 +281,26 @@ export function projectToTrack(x: number, z: number): TrackProjection {
   };
 }
 
-export function createSpawnState(slot: number): KartState {
+export function createSpawnState(
+  slot: number,
+  trackId: TrackId = DEFAULT_TRACK_ID
+): KartState {
+  const centerline = getTrackDefinition(trackId).centerline;
   const row = Math.floor(slot / 2);
   const lane = slot % 2 === 0 ? -1 : 1;
   const sampleIndex =
-    (2 - row * 3 + TRACK_CENTERLINE.length) % TRACK_CENTERLINE.length;
-  const point = getPoint(TRACK_CENTERLINE, sampleIndex);
-  const next = getPoint(TRACK_CENTERLINE, sampleIndex + 1);
+    (2 - row * 3 + centerline.length) % centerline.length;
+  const point = getPoint(centerline, sampleIndex);
+  const next = getPoint(centerline, sampleIndex + 1);
   const deltaX = next.x - point.x;
   const deltaZ = next.z - point.z;
   const inverseLength = 1 / Math.max(Math.hypot(deltaX, deltaZ), 0.0001);
   const tangent = { x: deltaX * inverseLength, z: deltaZ * inverseLength };
   const normal = { x: -tangent.z, z: tangent.x };
-  const x = point.x + normal.x * lane * 2.2;
-  const z = point.z + normal.z * lane * 2.2;
-  const projection = projectToTrack(x, z);
+  const laneSpacing = trackId === "riviera-royale" ? 1.82 : 2.2;
+  const x = point.x + normal.x * lane * laneSpacing;
+  const z = point.z + normal.z * lane * laneSpacing;
+  const projection = projectToTrack(x, z, trackId);
 
   return {
     x,
@@ -193,3 +318,11 @@ export function createSpawnState(slot: number): KartState {
     lastProcessedInput: 0
   };
 }
+
+// Alias conservés pour les consommateurs du premier jalon.
+export const TRACK_NAME = getTrackDefinition(DEFAULT_TRACK_ID).name;
+export const TRACK_WIDTH = getTrackDefinition(DEFAULT_TRACK_ID).width;
+export const TRACK_CONTROL_POINTS =
+  getTrackDefinition(DEFAULT_TRACK_ID).controlPoints;
+export const TRACK_CENTERLINE =
+  getTrackDefinition(DEFAULT_TRACK_ID).centerline;

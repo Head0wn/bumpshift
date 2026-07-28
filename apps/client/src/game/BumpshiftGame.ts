@@ -7,20 +7,31 @@ import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import {
+  DEFAULT_TRACK_ID,
   FIXED_TIMESTEP,
   SIMULATION_HZ,
   TOTAL_LAPS,
   createSpawnState,
+  getTrackDefinition,
   stepKart,
   type KartInput,
   type KartState,
   type PlayerSnapshot,
-  type RaceSnapshot
+  type RaceSnapshot,
+  type TrackId
 } from "@bumpshift/shared";
 import { InputController } from "./InputController";
 import { KartVisual } from "./KartVisual";
 import { NetworkSession } from "./NetworkSession";
-import { createTrackVisual } from "./TrackVisual";
+import {
+  createTrackVisual,
+  type TrackVisualHandle
+} from "./TrackVisual";
+import {
+  DEFAULT_GAME_SETTINGS,
+  sanitizeGameSettings,
+  type GameSettings
+} from "./settings";
 
 export interface HudElements {
   hud: HTMLElement;
@@ -40,6 +51,7 @@ export interface HudElements {
   phaseLights: HTMLElement;
   phaseStandings: HTMLElement;
   readyButton: HTMLButtonElement;
+  controllerStatus: HTMLElement;
 }
 
 const snapshotToState = (snapshot: PlayerSnapshot): KartState => ({
@@ -60,6 +72,7 @@ const snapshotToState = (snapshot: PlayerSnapshot): KartState => ({
 
 const DEFAULT_RACE_SNAPSHOT: RaceSnapshot = {
   phase: "waiting",
+  trackId: DEFAULT_TRACK_ID,
   serverTick: 0,
   phaseEndsAtTick: 0,
   raceStartedAtTick: 0,
@@ -101,6 +114,7 @@ export class BumpshiftGame {
   private readonly camera: UniversalCamera;
   private readonly input: InputController;
   private readonly hud: HudElements;
+  private readonly glow: GlowLayer;
   private readonly visuals = new Map<string, KartVisual>();
   private readonly snapshots = new Map<string, PlayerSnapshot>();
   private readonly pendingInputs: KartInput[] = [];
@@ -112,6 +126,9 @@ export class BumpshiftGame {
   private fixedAccumulator = 0;
   private cameraTarget = new Vector3(0, 1, 0);
   private raceState = { ...DEFAULT_RACE_SNAPSHOT };
+  private trackVisual: TrackVisualHandle;
+  private settings: GameSettings = { ...DEFAULT_GAME_SETTINGS };
+  private wasBoosting = false;
   private connected = false;
   private disposed = false;
   private readonly readyClickHandler: () => void;
@@ -121,13 +138,17 @@ export class BumpshiftGame {
     scene: Scene,
     camera: UniversalCamera,
     input: InputController,
-    hud: HudElements
+    hud: HudElements,
+    glow: GlowLayer,
+    trackVisual: TrackVisualHandle
   ) {
     this.engine = engine;
     this.scene = scene;
     this.camera = camera;
     this.input = input;
     this.hud = hud;
+    this.glow = glow;
+    this.trackVisual = trackVisual;
     this.readyClickHandler = () => {
       if (!this.connection || this.raceState.phase !== "waiting") {
         return;
@@ -185,7 +206,7 @@ export class BumpshiftGame {
     });
     glow.intensity = 0.45;
 
-    createTrackVisual(scene);
+    const trackVisual = createTrackVisual(scene, DEFAULT_TRACK_ID);
 
     const camera = new UniversalCamera(
       "race-camera",
@@ -197,8 +218,24 @@ export class BumpshiftGame {
     camera.maxZ = 420;
     camera.setTarget(Vector3.Zero());
 
-    const input = new InputController(touchRoot);
-    const game = new BumpshiftGame(engine, scene, camera, input, hud);
+    const input = new InputController(touchRoot, {
+      onGamepadStatus: (connected, label) => {
+        hud.controllerStatus.textContent = connected
+          ? `Manette · ${label.replace(/\s*\([^)]*\)\s*/g, " ").trim().slice(0, 28)}`
+          : "Manette non détectée";
+        hud.controllerStatus.classList.toggle("is-connected", connected);
+      }
+    });
+    const game = new BumpshiftGame(
+      engine,
+      scene,
+      camera,
+      input,
+      hud,
+      glow,
+      trackVisual
+    );
+    game.applySettings(DEFAULT_GAME_SETTINGS);
 
     const onResize = (): void => {
       engine.resize();
@@ -211,12 +248,53 @@ export class BumpshiftGame {
     return game;
   }
 
-  async connect(playerName: string): Promise<void> {
+  previewTrack(trackId: TrackId): void {
+    if (this.connected || this.connection) {
+      return;
+    }
+    this.switchTrackVisual(trackId);
+    this.raceState = {
+      ...this.raceState,
+      trackId
+    };
+  }
+
+  applySettings(value: GameSettings): void {
+    this.settings = sanitizeGameSettings(value);
+    this.input.setVibrationEnabled(this.settings.vibration);
+
+    const pixelRatio = window.devicePixelRatio || 1;
+    const hardwareScaling =
+      this.settings.graphicsQuality === "performance"
+        ? Math.max(1.65, pixelRatio / 1.1)
+        : this.settings.graphicsQuality === "quality"
+          ? Math.max(1, pixelRatio / 1.8)
+          : Math.min(1.5, Math.max(1, pixelRatio / 1.35));
+    this.engine.setHardwareScalingLevel(hardwareScaling);
+    this.glow.intensity =
+      this.settings.graphicsQuality === "performance"
+        ? 0.26
+        : this.settings.graphicsQuality === "quality"
+          ? 0.52
+          : 0.42;
+    this.engine.resize();
+  }
+
+  async connect(
+    playerName: string,
+    trackId: TrackId,
+    colorIndex: number
+  ): Promise<void> {
     if (this.connection) {
       return;
     }
 
-    const connection = await NetworkSession.connect(playerName, {
+    this.switchTrackVisual(trackId);
+    const connection = await NetworkSession.connect(
+      playerName,
+      trackId,
+      colorIndex,
+      {
       onPlayer: (snapshot) => {
         this.upsertPlayer(snapshot);
       },
@@ -233,7 +311,8 @@ export class BumpshiftGame {
         this.hud.connectionLabel.textContent = "Hors ligne";
         this.connected = false;
       }
-    });
+      }
+    );
 
     this.connection = connection;
     this.localPlayerId = connection.sessionId;
@@ -244,8 +323,26 @@ export class BumpshiftGame {
     const initialSnapshot = this.snapshots.get(this.localPlayerId);
     this.predictedState = initialSnapshot
       ? snapshotToState(initialSnapshot)
-      : createSpawnState(0);
+      : createSpawnState(0, trackId);
     this.refreshRaceOverlay();
+  }
+
+  private switchTrackVisual(trackId: TrackId): void {
+    if (this.trackVisual.trackId === trackId) {
+      return;
+    }
+
+    this.trackVisual.dispose();
+    this.trackVisual = createTrackVisual(this.scene, trackId);
+    const isRiviera = trackId === "riviera-royale";
+    const background = isRiviera ? "#07141c" : "#07100f";
+    this.scene.clearColor = Color4.FromHexString(`${background}ff`);
+    this.scene.fogColor = Color3.FromHexString(background);
+    this.scene.fogStart = isRiviera ? 92 : 82;
+    this.scene.fogEnd = isRiviera ? 205 : 188;
+    this.camera.position.set(0, isRiviera ? 68 : 62, -86);
+    this.cameraTarget.set(0, 1, 0);
+    this.camera.setTarget(this.cameraTarget);
   }
 
   private upsertPlayer(snapshot: PlayerSnapshot): void {
@@ -253,7 +350,11 @@ export class BumpshiftGame {
 
     let visual = this.visuals.get(snapshot.id);
     if (!visual) {
-      visual = new KartVisual(this.scene, snapshot.colorIndex);
+      visual = new KartVisual(
+        this.scene,
+        snapshot.colorIndex,
+        snapshot.name
+      );
       this.visuals.set(snapshot.id, visual);
       visual.update(snapshotToState(snapshot), FIXED_TIMESTEP, true);
     }
@@ -278,7 +379,12 @@ export class BumpshiftGame {
     let reconciled = snapshotToState(snapshot);
     if (this.raceState.phase === "racing" && !reconciled.finished) {
       for (const input of this.pendingInputs) {
-        reconciled = stepKart(reconciled, input, FIXED_TIMESTEP);
+        reconciled = stepKart(
+          reconciled,
+          input,
+          FIXED_TIMESTEP,
+          this.raceState.trackId
+        );
       }
     }
     this.predictedState = reconciled;
@@ -301,6 +407,9 @@ export class BumpshiftGame {
 
   private updateRaceSnapshot(snapshot: RaceSnapshot): void {
     const previousPhase = this.raceState.phase;
+    if (snapshot.trackId !== this.trackVisual.trackId) {
+      this.switchTrackVisual(snapshot.trackId);
+    }
     this.raceState = snapshot;
 
     if (snapshot.phase !== previousPhase) {
@@ -312,6 +421,9 @@ export class BumpshiftGame {
       const authoritative = this.snapshots.get(this.localPlayerId);
       if (authoritative) {
         this.predictedState = snapshotToState(authoritative);
+      }
+      if (snapshot.phase === "racing") {
+        this.input.rumble(180, 0.35, 0.8);
       }
     }
 
@@ -340,6 +452,15 @@ export class BumpshiftGame {
       return;
     }
 
+    const menuVisible =
+      !document.body.classList.contains("is-driving") &&
+      Boolean(
+        document.querySelector(
+          ".menu:not(.is-hidden):not([hidden]), .race-overlay:not([hidden])"
+        )
+      );
+    this.input.updateMenuNavigation(menuVisible);
+
     const deltaSeconds = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
     if (this.connected && this.connection && this.predictedState) {
       this.fixedAccumulator = Math.min(
@@ -361,7 +482,8 @@ export class BumpshiftGame {
           this.predictedState = stepKart(
             this.predictedState,
             input,
-            FIXED_TIMESTEP
+            FIXED_TIMESTEP,
+            this.raceState.trackId
           );
         }
         this.fixedAccumulator -= FIXED_TIMESTEP;
@@ -399,9 +521,10 @@ export class BumpshiftGame {
       Math.cos(localState.heading)
     );
     const speedRatio = Math.min(1, Math.abs(localState.speed) / 34);
+    const motion = this.settings.cameraMotion;
     const desiredPosition = new Vector3(localState.x, 0.55, localState.z)
-      .subtract(forward.scale(8.8 + speedRatio * 1.8))
-      .add(new Vector3(0, 4.25 + speedRatio * 0.65, 0));
+      .subtract(forward.scale(8.8 + speedRatio * 1.8 * motion))
+      .add(new Vector3(0, 4.25 + speedRatio * 0.65 * motion, 0));
     const desiredTarget = new Vector3(localState.x, 1.05, localState.z).add(
       forward.scale(4.8 + speedRatio * 2.5)
     );
@@ -420,7 +543,7 @@ export class BumpshiftGame {
     );
     this.camera.setTarget(this.cameraTarget);
     this.camera.fov +=
-      (0.88 + speedRatio * 0.12 - this.camera.fov) *
+      (0.88 + speedRatio * 0.12 * motion - this.camera.fov) *
       (1 - Math.exp(-deltaSeconds * 4));
 
     this.updateHud(localState);
@@ -472,7 +595,12 @@ export class BumpshiftGame {
           : chargeRatio >= 0.18
             ? "Étincelles"
             : "Prêt";
-    document.body.classList.toggle("is-boosting", localState.boostTime > 0);
+    const boosting = localState.boostTime > 0;
+    document.body.classList.toggle("is-boosting", boosting);
+    if (boosting && !this.wasBoosting) {
+      this.input.rumble(110, 0.18, 0.42);
+    }
+    this.wasBoosting = boosting;
   }
 
   private refreshRaceOverlay(): void {
@@ -500,8 +628,10 @@ export class BumpshiftGame {
     this.renderStandings(players, phase === "waiting");
 
     if (phase === "waiting") {
+      const track = getTrackDefinition(this.raceState.trackId);
       this.hud.raceOverlay.hidden = false;
-      this.hud.phaseEyebrow.textContent = `MANCHE ${this.raceState.round} · CIRCUIT AURORE`;
+      this.hud.phaseEyebrow.textContent =
+        `MANCHE ${this.raceState.round} · ${track.name.toUpperCase()}`;
       this.hud.phaseTitle.textContent = "GRILLE DE DÉPART";
       this.hud.phaseDetail.textContent =
         players.length === 0
@@ -620,6 +750,7 @@ export class BumpshiftGame {
       this.readyClickHandler
     );
     this.input.dispose();
+    this.trackVisual.dispose();
     if (this.connection) {
       await this.connection.dispose();
     }

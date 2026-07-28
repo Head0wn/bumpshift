@@ -1,4 +1,5 @@
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -7,15 +8,15 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import type { KartState } from "@bumpshift/shared";
 
-const KART_COLORS = [
-  "#bafc4b",
-  "#4cf4e6",
-  "#ff5f55",
-  "#9d7cff",
-  "#ffcb44",
-  "#4b92ff",
-  "#ff70c8",
-  "#f2f5f2"
+export const KART_PALETTES = [
+  { name: "Volt", color: "#bafc4b" },
+  { name: "Ion", color: "#4cf4e6" },
+  { name: "Impact", color: "#ff5f55" },
+  { name: "Spectre", color: "#9d7cff" },
+  { name: "Solar", color: "#ffcb44" },
+  { name: "Cobalt", color: "#4b92ff" },
+  { name: "Pulse", color: "#ff70c8" },
+  { name: "Arctique", color: "#f2f5f2" }
 ] as const;
 
 let visualSequence = 0;
@@ -52,10 +53,11 @@ export class KartVisual {
   private wheelRotation = 0;
   private readonly accentMaterial: StandardMaterial;
 
-  constructor(scene: Scene, colorIndex: number) {
+  constructor(scene: Scene, colorIndex: number, pilotName = "Pilote") {
     const visualId = ++visualSequence;
     const accent =
-      KART_COLORS[colorIndex % KART_COLORS.length] ?? KART_COLORS[0];
+      KART_PALETTES[colorIndex % KART_PALETTES.length]?.color ??
+      KART_PALETTES[0].color;
     const accentMaterial = makeMaterial(
       scene,
       `kart-accent-${visualId}`,
@@ -86,6 +88,20 @@ export class KartVisual {
       1
     );
     glowMaterial.disableLighting = true;
+    const rimMaterial = makeMaterial(
+      scene,
+      `kart-rims-${visualId}`,
+      "#9bacb0",
+      0.08
+    );
+    rimMaterial.specularColor = new Color3(0.8, 0.86, 0.86);
+    const redLightMaterial = makeMaterial(
+      scene,
+      `kart-brake-lights-${visualId}`,
+      "#ff4038",
+      1
+    );
+    redLightMaterial.disableLighting = true;
 
     this.accentMaterial = accentMaterial;
     this.root = new TransformNode("kart-root", scene);
@@ -138,6 +154,41 @@ export class KartVisual {
     nose.scaling.x = 0.86;
     nose.parent = this.bodyPivot;
 
+    const frontBumper = MeshBuilder.CreateBox(
+      "kart-front-bumper",
+      { width: 2.14, height: 0.16, depth: 0.32 },
+      scene
+    );
+    frontBumper.material = darkMaterial;
+    frontBumper.position.set(0, 0.48, 1.72);
+    frontBumper.parent = this.bodyPivot;
+
+    for (const side of [-1, 1]) {
+      const sidePod = MeshBuilder.CreateBox(
+        "kart-side-pod",
+        { width: 0.34, height: 0.34, depth: 1.64 },
+        scene
+      );
+      sidePod.material = accentMaterial;
+      sidePod.position.set(side * 0.96, 0.67, 0.05);
+      sidePod.rotation.z = side * -0.035;
+      sidePod.parent = this.bodyPivot;
+
+      const suspensionFront = MeshBuilder.CreateBox(
+        "kart-front-suspension",
+        { width: 0.74, height: 0.08, depth: 0.1 },
+        scene
+      );
+      suspensionFront.material = rimMaterial;
+      suspensionFront.position.set(side * 0.67, 0.51, 0.95);
+      suspensionFront.rotation.z = side * 0.08;
+      suspensionFront.parent = this.bodyPivot;
+
+      const suspensionRear = suspensionFront.clone("kart-rear-suspension");
+      suspensionRear.position.z = -0.95;
+      suspensionRear.rotation.z = side * -0.08;
+    }
+
     const cockpit = MeshBuilder.CreateSphere(
       "kart-cockpit",
       {
@@ -152,6 +203,39 @@ export class KartVisual {
     cockpit.position.set(0, 1.2, -0.15);
     cockpit.parent = this.bodyPivot;
 
+    const helmet = MeshBuilder.CreateSphere(
+      "pilot-helmet",
+      {
+        diameterX: 0.72,
+        diameterY: 0.76,
+        diameterZ: 0.72,
+        segments: 14
+      },
+      scene
+    );
+    helmet.material = accentMaterial;
+    helmet.position.set(0, 1.54, -0.28);
+    helmet.parent = this.bodyPivot;
+
+    const visor = MeshBuilder.CreateBox(
+      "pilot-visor",
+      { width: 0.58, height: 0.18, depth: 0.12 },
+      scene
+    );
+    visor.material = glassMaterial;
+    visor.position.set(0, 1.56, 0.06);
+    visor.parent = this.bodyPivot;
+
+    const steeringWheel = MeshBuilder.CreateTorus(
+      "steering-wheel",
+      { diameter: 0.48, thickness: 0.07, tessellation: 14 },
+      scene
+    );
+    steeringWheel.material = darkMaterial;
+    steeringWheel.position.set(0, 1.22, 0.46);
+    steeringWheel.rotation.x = Math.PI * 0.36;
+    steeringWheel.parent = this.bodyPivot;
+
     const rearWing = MeshBuilder.CreateBox(
       "kart-wing",
       { width: 2.06, height: 0.16, depth: 0.4 },
@@ -160,6 +244,17 @@ export class KartVisual {
     rearWing.material = accentMaterial;
     rearWing.position.set(0, 1.08, -1.42);
     rearWing.parent = this.bodyPivot;
+
+    for (const side of [-0.68, 0.68]) {
+      const wingSupport = MeshBuilder.CreateBox(
+        "kart-wing-support",
+        { width: 0.12, height: 0.5, depth: 0.12 },
+        scene
+      );
+      wingSupport.material = darkMaterial;
+      wingSupport.position.set(side, 0.86, -1.42);
+      wingSupport.parent = this.bodyPivot;
+    }
 
     for (const x of [-0.96, 0.96]) {
       for (const z of [-0.95, 0.95]) {
@@ -173,8 +268,119 @@ export class KartVisual {
         wheel.rotation.z = Math.PI / 2;
         wheel.parent = this.bodyPivot;
         this.wheels.push(wheel);
+
+        const rim = MeshBuilder.CreateCylinder(
+          "kart-rim",
+          { diameter: 0.38, height: 0.4, tessellation: 12 },
+          scene
+        );
+        rim.material = rimMaterial;
+        rim.parent = wheel;
       }
     }
+
+    for (const x of [-0.53, 0.53]) {
+      const brakeLight = MeshBuilder.CreateBox(
+        "kart-brake-light",
+        { width: 0.34, height: 0.14, depth: 0.08 },
+        scene
+      );
+      brakeLight.material = redLightMaterial;
+      brakeLight.position.set(x, 0.78, -1.48);
+      brakeLight.parent = this.bodyPivot;
+
+      const exhaust = MeshBuilder.CreateCylinder(
+        "kart-exhaust",
+        { diameter: 0.2, height: 0.42, tessellation: 10 },
+        scene
+      );
+      exhaust.material = rimMaterial;
+      exhaust.position.set(x, 0.51, -1.56);
+      exhaust.rotation.x = Math.PI / 2;
+      exhaust.parent = this.bodyPivot;
+    }
+
+    const diffuser = MeshBuilder.CreateBox(
+      "kart-diffuser",
+      { width: 1.52, height: 0.16, depth: 0.38 },
+      scene
+    );
+    diffuser.material = darkMaterial;
+    diffuser.position.set(0, 0.4, -1.53);
+    diffuser.rotation.x = -0.12;
+    diffuser.parent = this.bodyPivot;
+
+    const numberTexture = new DynamicTexture(
+      `kart-number-texture-${visualId}`,
+      { width: 256, height: 256 },
+      scene,
+      false
+    );
+    numberTexture.hasAlpha = true;
+    numberTexture.drawText(
+      String((colorIndex % KART_PALETTES.length) + 1).padStart(2, "0"),
+      null,
+      180,
+      "italic 900 138px Arial",
+      "#07100f",
+      "transparent",
+      true,
+      true
+    );
+    const numberMaterial = new StandardMaterial(
+      `kart-number-material-${visualId}`,
+      scene
+    );
+    numberMaterial.diffuseTexture = numberTexture;
+    numberMaterial.emissiveTexture = numberTexture;
+    numberMaterial.opacityTexture = numberTexture;
+    numberMaterial.disableLighting = true;
+    numberMaterial.backFaceCulling = false;
+    const numberPlate = MeshBuilder.CreatePlane(
+      "kart-number",
+      { width: 0.72, height: 0.72 },
+      scene
+    );
+    numberPlate.material = numberMaterial;
+    numberPlate.position.set(0, 0.83, 1.91);
+    numberPlate.rotation.x = Math.PI / 2;
+    numberPlate.parent = this.bodyPivot;
+
+    const nameTexture = new DynamicTexture(
+      `kart-name-texture-${visualId}`,
+      { width: 512, height: 128 },
+      scene,
+      false
+    );
+    nameTexture.hasAlpha = true;
+    nameTexture.drawText(
+      pilotName.toUpperCase().slice(0, 16),
+      null,
+      88,
+      "900 54px Arial",
+      "#f7fbf9",
+      "rgba(5, 12, 11, 0.72)",
+      true,
+      true
+    );
+    const nameMaterial = new StandardMaterial(
+      `kart-name-material-${visualId}`,
+      scene
+    );
+    nameMaterial.diffuseTexture = nameTexture;
+    nameMaterial.emissiveTexture = nameTexture;
+    nameMaterial.opacityTexture = nameTexture;
+    nameMaterial.disableLighting = true;
+    nameMaterial.backFaceCulling = false;
+    const nameplate = MeshBuilder.CreatePlane(
+      "kart-nameplate",
+      { width: 2.8, height: 0.7 },
+      scene
+    );
+    nameplate.material = nameMaterial;
+    nameplate.position.set(0, 2.45, 0);
+    nameplate.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    nameplate.parent = this.root;
 
     for (const x of [-0.48, 0.48]) {
       const spark = MeshBuilder.CreateSphere(

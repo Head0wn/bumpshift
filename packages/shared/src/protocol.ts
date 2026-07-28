@@ -6,6 +6,11 @@ export const CHECKPOINT_COUNT = 8;
 export const COUNTDOWN_TICKS = SIMULATION_HZ * 3;
 export const FINISH_GRACE_TICKS = SIMULATION_HZ * 30;
 export const RESULTS_TICKS = SIMULATION_HZ * 10;
+export const KART_COLOR_COUNT = 8;
+
+export const TRACK_IDS = ["aurora", "riviera-royale"] as const;
+export type TrackId = (typeof TRACK_IDS)[number];
+export const DEFAULT_TRACK_ID: TrackId = "aurora";
 
 export const RACE_PHASES = [
   "waiting",
@@ -18,6 +23,7 @@ export type RacePhase = (typeof RACE_PHASES)[number];
 
 export interface RaceSnapshot {
   phase: RacePhase;
+  trackId: TrackId;
   serverTick: number;
   phaseEndsAtTick: number;
   raceStartedAtTick: number;
@@ -113,4 +119,17 @@ export function sanitizeRacePhase(value: unknown): RacePhase {
     (RACE_PHASES as readonly string[]).includes(value)
     ? (value as RacePhase)
     : "waiting";
+}
+
+export function sanitizeTrackId(value: unknown): TrackId {
+  return typeof value === "string" &&
+    (TRACK_IDS as readonly string[]).includes(value)
+    ? (value as TrackId)
+    : DEFAULT_TRACK_ID;
+}
+
+export function sanitizeKartColor(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(KART_COLOR_COUNT - 1, Math.max(0, Math.floor(value)))
+    : 0;
 }

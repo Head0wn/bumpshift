@@ -10,10 +10,13 @@ import {
   raceProgressScore,
   resolveKartCollisions,
   sanitizeKartInput,
+  sanitizeKartColor,
   sanitizePlayerName,
+  sanitizeTrackId,
   stepKart,
   type KartInput,
-  type KartState
+  type KartState,
+  type TrackId
 } from "@bumpshift/shared";
 import { Room, type Client } from "@colyseus/core";
 import { PlayerState, RaceState } from "./state.js";
@@ -69,7 +72,10 @@ const frozenState = (
   lastProcessedInput: acknowledgedSequence
 });
 
-export class RaceRoom extends Room<{ state: RaceState }> {
+export class RaceRoom extends Room<{
+  state: RaceState;
+  metadata: { trackId: TrackId };
+}> {
   override maxClients = MAX_PLAYERS;
   override patchRate = 50;
   override state = new RaceState();
@@ -77,7 +83,9 @@ export class RaceRoom extends Room<{ state: RaceState }> {
   private accumulator = 0;
   private readonly runtimes = new Map<string, PlayerRuntime>();
 
-  override onCreate(): void {
+  override onCreate(options: Record<string, unknown>): void {
+    this.state.trackId = sanitizeTrackId(options.trackId);
+
     this.onMessage("input", (client, payload: unknown) => {
       this.receiveInput(client, payload);
     });
@@ -98,10 +106,13 @@ export class RaceRoom extends Room<{ state: RaceState }> {
   }
 
   override onJoin(client: Client, options: Record<string, unknown>): void {
-    const spawn = createSpawnState(this.state.players.size);
+    const spawn = createSpawnState(
+      this.state.players.size,
+      sanitizeTrackId(this.state.trackId)
+    );
     const player = new PlayerState();
     player.name = sanitizePlayerName(options.name);
-    player.colorIndex = this.state.players.size % 8;
+    player.colorIndex = sanitizeKartColor(options.colorIndex);
     player.position = this.state.players.size + 1;
     applyKartState(player, spawn);
 
@@ -199,7 +210,8 @@ export class RaceRoom extends Room<{ state: RaceState }> {
       const nextState = stepKart(
         toKartState(player),
         runtime.heldInput,
-        FIXED_TIMESTEP
+        FIXED_TIMESTEP,
+        sanitizeTrackId(this.state.trackId)
       );
 
       if (!wasFinished && nextState.finished) {
@@ -222,7 +234,10 @@ export class RaceRoom extends Room<{ state: RaceState }> {
       activeStates.push(nextState);
     });
 
-    const resolvedStates = resolveKartCollisions(activeStates);
+    const resolvedStates = resolveKartCollisions(
+      activeStates,
+      sanitizeTrackId(this.state.trackId)
+    );
     for (let index = 0; index < activePlayers.length; index += 1) {
       const player = activePlayers[index];
       const resolved = resolvedStates[index];
@@ -334,7 +349,7 @@ export class RaceRoom extends Room<{ state: RaceState }> {
       const runtime = this.runtimes.get(sessionId);
       const acknowledgedSequence = runtime?.lastReceivedSequence ?? 0;
       const spawn = {
-        ...createSpawnState(slot),
+        ...createSpawnState(slot, sanitizeTrackId(this.state.trackId)),
         lastProcessedInput: acknowledgedSequence
       };
       applyKartState(player, spawn);

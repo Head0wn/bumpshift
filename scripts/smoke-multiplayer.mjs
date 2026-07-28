@@ -69,11 +69,21 @@ try {
 
   const firstClient = new Client(URL);
   const secondClient = new Client(URL);
+  const rivieraClient = new Client(URL);
   const firstRoom = await firstClient.joinOrCreate("race", {
-    name: "Smoke One"
+    name: "Smoke One",
+    trackId: "aurora",
+    colorIndex: 2
   });
   const secondRoom = await secondClient.joinOrCreate("race", {
-    name: "Smoke Two"
+    name: "Smoke Two",
+    trackId: "aurora",
+    colorIndex: 5
+  });
+  const rivieraRoom = await rivieraClient.joinOrCreate("race", {
+    name: "Smoke Riviera",
+    trackId: "riviera-royale",
+    colorIndex: 7
   });
   const callbacks = getStateCallbacks(firstRoom);
   const localUpdates = [];
@@ -99,6 +109,14 @@ try {
     2000,
     "Les deux pilotes n'ont pas rejoint le même salon."
   );
+  await waitUntil(
+    () => rivieraRoom.state.trackId === "riviera-royale",
+    2000,
+    "Le salon Riviera Royale n'a pas conservé son circuit."
+  );
+  if (rivieraRoom.roomId === firstRoom.roomId) {
+    throw new Error("Deux circuits différents ont partagé le même salon.");
+  }
 
   firstRoom.send("ready", true);
   secondRoom.send("ready", true);
@@ -148,11 +166,16 @@ try {
     throw new Error("Le kart n'a pas avancé dans l'état autoritaire.");
   }
 
-  await Promise.all([firstRoom.leave(), secondRoom.leave()]);
+  await Promise.all([
+    firstRoom.leave(),
+    secondRoom.leave(),
+    rivieraRoom.leave()
+  ]);
   console.log(
     JSON.stringify({
       room: "race",
       players: 2,
+      isolatedTracks: ["aurora", "riviera-royale"],
       synchronizedPhase: "racing",
       updates: localUpdates.length,
       acknowledgedInput: latest.acknowledged,

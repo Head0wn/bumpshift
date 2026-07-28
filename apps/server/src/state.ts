@@ -47,6 +47,7 @@ defineTypes(PlayerState, {
 export class RaceState extends Schema {
   players = new MapSchema<PlayerState>();
   phase = "waiting";
+  trackId = "aurora";
   serverTick = 0;
   phaseEndsAtTick = 0;
   raceStartedAtTick = 0;
@@ -56,6 +57,7 @@ export class RaceState extends Schema {
 defineTypes(RaceState, {
   players: { map: PlayerState },
   phase: "string",
+  trackId: "string",
   serverTick: "number",
   phaseEndsAtTick: "number",
   raceStartedAtTick: "number",

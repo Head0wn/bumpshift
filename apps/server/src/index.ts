@@ -20,7 +20,7 @@ const gameServer = new Server({
     server: httpServer
   })
 });
-gameServer.define("race", RaceRoom);
+gameServer.define("race", RaceRoom).filterBy(["trackId"]);
 
 const port = Number.parseInt(process.env.PORT ?? "2567", 10);
 await gameServer.listen(Number.isFinite(port) ? port : 2567);

@@ -8,10 +8,15 @@ BUMPSHIFT est un jeu de kart 3D multijoueur conçu pour le navigateur. Le projet
 
 La branche de développement contient maintenant une boucle de course multijoueur complète :
 
-- circuit 3D procédural ;
+- vrai menu principal avec sélection du circuit, garage et paramètres persistants ;
+- deux circuits 3D procéduraux : Circuit Aurore et Riviera Royale ;
+- décors dédiés (forêt boréale, principauté, port, yachts et tunnel) ;
+- karts détaillés avec huit livrées visibles par tous les pilotes ;
 - kart arcade avec accélération, freinage et marche arrière ;
 - dérapage chargé avec trois niveaux de mini-turbo ;
-- caméra dynamique, HUD et commandes clavier/tactiles ;
+- caméra dynamique, HUD et commandes clavier, tactiles et manette ;
+- navigation complète des menus à la manette et vibrations compatibles ;
+- réglages de qualité, mouvement de caméra, vibrations et plein écran ;
 - grille multijoueur avec validation « prêt » et compte à rebours synchronisé ;
 - checkpoints séquentiels, trois tours, classement et résultats chronométrés ;
 - collisions autoritaires entre les karts ;
@@ -32,12 +37,12 @@ Ouvrir ensuite `http://localhost:5173`. Pour tester le multijoueur, ouvrir une s
 
 ## Commandes
 
-| Action | Clavier |
-|---|---|
-| Accélérer | `Z`, `W` ou `↑` |
-| Freiner / marche arrière | `S` ou `↓` |
-| Tourner | `Q`, `A`, `D` ou `←` `→` |
-| Déraper | `Espace` ou `Maj` |
+| Action | Clavier | Manette standard |
+|---|---|---|
+| Accélérer | `Z`, `W` ou `↑` | `RT` / `R2` |
+| Freiner / marche arrière | `S` ou `↓` | `LT` / `L2` |
+| Tourner | `Q`, `A`, `D` ou `←` `→` | Stick gauche / croix |
+| Déraper | `Espace` ou `Maj` | `A` / `✕` ou gâchettes hautes |
 
 Les commandes tactiles apparaissent automatiquement sur les écrans compatibles.
 

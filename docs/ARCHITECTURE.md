@@ -12,6 +12,8 @@ Le serveur contrôle également les quatre phases d'une manche (`waiting`, `coun
 
 Les passages de ligne ne suffisent pas à valider un tour : sept checkpoints intermédiaires doivent être franchis dans l'ordre. Les positions, collisions, temps d'arrivée et abandons sont eux aussi calculés par le serveur.
 
+Le circuit choisi fait partie des critères de matchmaking. Deux pilotes ayant sélectionné des pistes différentes ne peuvent donc pas rejoindre le même salon, et l'identifiant du circuit reste synchronisé dans l'état autoritaire.
+
 ```mermaid
 flowchart TD
     A["Entrée joueur"] --> B["Prédiction locale"]
