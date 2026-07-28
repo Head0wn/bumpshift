@@ -37,6 +37,17 @@ const stopServer = async () => {
   }
 };
 
+const waitUntil = async (predicate, timeoutMilliseconds, message) => {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await delay(25);
+  }
+  throw new Error(message);
+};
+
 try {
   let healthy = false;
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -56,15 +67,19 @@ try {
     throw new Error(`Le serveur n'a pas démarré.\n${serverOutput}`);
   }
 
-  const client = new Client(URL);
-  const room = await client.joinOrCreate("race", {
-    name: "Smoke Pilot"
+  const firstClient = new Client(URL);
+  const secondClient = new Client(URL);
+  const firstRoom = await firstClient.joinOrCreate("race", {
+    name: "Smoke One"
   });
-  const callbacks = getStateCallbacks(room);
+  const secondRoom = await secondClient.joinOrCreate("race", {
+    name: "Smoke Two"
+  });
+  const callbacks = getStateCallbacks(firstRoom);
   const localUpdates = [];
 
-  callbacks(room.state).players.onAdd((player, playerId) => {
-    if (playerId !== room.sessionId) {
+  callbacks(firstRoom.state).players.onAdd((player, playerId) => {
+    if (playerId !== firstRoom.sessionId) {
       return;
     }
     const capture = () => {
@@ -79,8 +94,30 @@ try {
     callbacks(player).onChange(capture);
   });
 
+  await waitUntil(
+    () => firstRoom.state.players.size === 2,
+    2000,
+    "Les deux pilotes n'ont pas rejoint le même salon."
+  );
+
+  firstRoom.send("ready", true);
+  secondRoom.send("ready", true);
+
+  await waitUntil(
+    () => firstRoom.state.phase === "countdown",
+    2000,
+    "Le compte à rebours synchronisé n'a pas démarré."
+  );
+  await waitUntil(
+    () =>
+      firstRoom.state.phase === "racing" &&
+      secondRoom.state.phase === "racing",
+    5000,
+    "La course n'a pas démarré sur les deux clients."
+  );
+
   for (let sequence = 1; sequence <= 45; sequence += 1) {
-    room.send("input", {
+    firstRoom.send("input", {
       sequence,
       throttle: 1,
       brake: 0,
@@ -111,10 +148,12 @@ try {
     throw new Error("Le kart n'a pas avancé dans l'état autoritaire.");
   }
 
-  await room.leave();
+  await Promise.all([firstRoom.leave(), secondRoom.leave()]);
   console.log(
     JSON.stringify({
       room: "race",
+      players: 2,
+      synchronizedPhase: "racing",
       updates: localUpdates.length,
       acknowledgedInput: latest.acknowledged,
       speed: Number(latest.speed.toFixed(2)),
@@ -126,4 +165,3 @@ try {
 } finally {
   await stopServer();
 }
-

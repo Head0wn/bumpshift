@@ -15,7 +15,7 @@
     "dev:server": "npm run dev -w @bumpshift/server",
     "smoke:multiplayer": "node scripts/smoke-multiplayer.mjs",
     "test": "vitest run",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run build -w @bumpshift/shared && npm run typecheck --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.0.0"

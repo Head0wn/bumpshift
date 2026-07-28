@@ -8,12 +8,14 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import {
   FIXED_TIMESTEP,
+  SIMULATION_HZ,
   TOTAL_LAPS,
   createSpawnState,
   stepKart,
   type KartInput,
   type KartState,
-  type PlayerSnapshot
+  type PlayerSnapshot,
+  type RaceSnapshot
 } from "@bumpshift/shared";
 import { InputController } from "./InputController";
 import { KartVisual } from "./KartVisual";
@@ -31,6 +33,13 @@ export interface HudElements {
   speed: HTMLElement;
   driftFill: HTMLElement;
   driftLevel: HTMLElement;
+  raceOverlay: HTMLElement;
+  phaseEyebrow: HTMLElement;
+  phaseTitle: HTMLElement;
+  phaseDetail: HTMLElement;
+  phaseLights: HTMLElement;
+  phaseStandings: HTMLElement;
+  readyButton: HTMLButtonElement;
 }
 
 const snapshotToState = (snapshot: PlayerSnapshot): KartState => ({
@@ -43,13 +52,34 @@ const snapshotToState = (snapshot: PlayerSnapshot): KartState => ({
   boostTime: snapshot.boostTime,
   drifting: snapshot.drifting,
   lap: snapshot.lap,
+  checkpoint: snapshot.checkpoint,
   progress: snapshot.progress,
   finished: snapshot.finished,
   lastProcessedInput: snapshot.lastProcessedInput
 });
 
-const scoreState = (state: Readonly<KartState>): number =>
-  (state.lap - 1) + state.progress;
+const DEFAULT_RACE_SNAPSHOT: RaceSnapshot = {
+  phase: "waiting",
+  serverTick: 0,
+  phaseEndsAtTick: 0,
+  raceStartedAtTick: 0,
+  round: 1
+};
+
+const ordinal = (position: number): string =>
+  position === 1 ? "1er" : `${position}e`;
+
+const formatRaceTime = (milliseconds: number): string => {
+  if (milliseconds < 0) {
+    return "EN COURSE";
+  }
+
+  const totalSeconds = milliseconds / 1000;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const millis = Math.floor(milliseconds % 1000);
+  return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+};
 
 const createRenderingEngine = (canvas: HTMLCanvasElement): Engine =>
   new Engine(
@@ -81,8 +111,10 @@ export class BumpshiftGame {
   private inputSequence = 0;
   private fixedAccumulator = 0;
   private cameraTarget = new Vector3(0, 1, 0);
+  private raceState = { ...DEFAULT_RACE_SNAPSHOT };
   private connected = false;
   private disposed = false;
+  private readonly readyClickHandler: () => void;
 
   private constructor(
     engine: Engine,
@@ -96,6 +128,14 @@ export class BumpshiftGame {
     this.camera = camera;
     this.input = input;
     this.hud = hud;
+    this.readyClickHandler = () => {
+      if (!this.connection || this.raceState.phase !== "waiting") {
+        return;
+      }
+      const localPlayer = this.snapshots.get(this.localPlayerId);
+      this.connection.sendReady(!(localPlayer?.ready ?? false));
+    };
+    this.hud.readyButton.addEventListener("click", this.readyClickHandler);
 
     this.engine.runRenderLoop(() => {
       this.frame();
@@ -183,6 +223,9 @@ export class BumpshiftGame {
       onPlayerLeft: (playerId) => {
         this.removePlayer(playerId);
       },
+      onRace: (snapshot) => {
+        this.updateRaceSnapshot(snapshot);
+      },
       onLatency: (latency) => {
         this.hud.latency.textContent = `${latency} ms`;
       },
@@ -202,6 +245,7 @@ export class BumpshiftGame {
     this.predictedState = initialSnapshot
       ? snapshotToState(initialSnapshot)
       : createSpawnState(0);
+    this.refreshRaceOverlay();
   }
 
   private upsertPlayer(snapshot: PlayerSnapshot): void {
@@ -232,10 +276,17 @@ export class BumpshiftGame {
     }
 
     let reconciled = snapshotToState(snapshot);
-    for (const input of this.pendingInputs) {
-      reconciled = stepKart(reconciled, input, FIXED_TIMESTEP);
+    if (this.raceState.phase === "racing" && !reconciled.finished) {
+      for (const input of this.pendingInputs) {
+        reconciled = stepKart(reconciled, input, FIXED_TIMESTEP);
+      }
     }
     this.predictedState = reconciled;
+    document.body.classList.toggle(
+      "is-driving",
+      this.raceState.phase === "racing" && !snapshot.finished
+    );
+    this.refreshRaceOverlay();
   }
 
   private removePlayer(playerId: string): void {
@@ -245,6 +296,43 @@ export class BumpshiftGame {
       visual.dispose();
       this.visuals.delete(playerId);
     }
+    this.refreshRaceOverlay();
+  }
+
+  private updateRaceSnapshot(snapshot: RaceSnapshot): void {
+    const previousPhase = this.raceState.phase;
+    this.raceState = snapshot;
+
+    if (snapshot.phase !== previousPhase) {
+      this.fixedAccumulator = 0;
+      if (snapshot.phase !== "racing") {
+        this.pendingInputs.length = 0;
+      }
+
+      const authoritative = this.snapshots.get(this.localPlayerId);
+      if (authoritative) {
+        this.predictedState = snapshotToState(authoritative);
+      }
+    }
+
+    const localPlayer = this.snapshots.get(this.localPlayerId);
+    document.body.classList.toggle(
+      "is-driving",
+      snapshot.phase === "racing" && !(localPlayer?.finished ?? false)
+    );
+    if (snapshot.phase !== "racing") {
+      document.body.classList.remove("is-boosting");
+    }
+
+    this.hud.connectionLabel.textContent =
+      snapshot.phase === "waiting"
+        ? "Sur la grille"
+        : snapshot.phase === "countdown"
+          ? "Départ imminent"
+          : snapshot.phase === "results"
+            ? "Résultats officiels"
+            : "Course en ligne";
+    this.refreshRaceOverlay();
   }
 
   private frame(): void {
@@ -266,11 +354,16 @@ export class BumpshiftGame {
           this.pendingInputs.shift();
         }
         this.connection.sendInput(input);
-        this.predictedState = stepKart(
-          this.predictedState,
-          input,
-          FIXED_TIMESTEP
-        );
+        if (
+          this.raceState.phase === "racing" &&
+          !this.predictedState.finished
+        ) {
+          this.predictedState = stepKart(
+            this.predictedState,
+            input,
+            FIXED_TIMESTEP
+          );
+        }
         this.fixedAccumulator -= FIXED_TIMESTEP;
       }
 
@@ -356,17 +449,9 @@ export class BumpshiftGame {
   }
 
   private updateHud(localState: KartState): void {
-    const racers: KartState[] = [];
-    for (const [playerId, snapshot] of this.snapshots) {
-      racers.push(
-        playerId === this.localPlayerId
-          ? localState
-          : snapshotToState(snapshot)
-      );
-    }
-    racers.sort((a, b) => scoreState(b) - scoreState(a));
-    const rank = racers.indexOf(localState) + 1;
-    const fieldSize = Math.max(1, racers.length);
+    const localSnapshot = this.snapshots.get(this.localPlayerId);
+    const rank = localSnapshot?.position ?? 1;
+    const fieldSize = Math.max(1, this.snapshots.size);
     const chargeRatio = Math.min(1, localState.driftCharge / 1.25);
 
     this.hud.position.textContent = String(Math.max(1, rank));
@@ -390,11 +475,150 @@ export class BumpshiftGame {
     document.body.classList.toggle("is-boosting", localState.boostTime > 0);
   }
 
+  private refreshRaceOverlay(): void {
+    if (!this.connected && !this.connection) {
+      return;
+    }
+
+    const phase = this.raceState.phase;
+    const localPlayer = this.snapshots.get(this.localPlayerId);
+    const players = [...this.snapshots.values()].sort(
+      (first, second) => first.position - second.position
+    );
+    const readyCount = players.filter((player) => player.ready).length;
+    const ticksRemaining = Math.max(
+      0,
+      this.raceState.phaseEndsAtTick - this.raceState.serverTick
+    );
+    const secondsRemaining = Math.ceil(ticksRemaining / SIMULATION_HZ);
+
+    this.hud.raceOverlay.dataset.phase = phase;
+    this.hud.readyButton.hidden = phase !== "waiting";
+    this.hud.readyButton.textContent = localPlayer?.ready
+      ? "ANNULER"
+      : "JE SUIS PRÊT";
+    this.renderStandings(players, phase === "waiting");
+
+    if (phase === "waiting") {
+      this.hud.raceOverlay.hidden = false;
+      this.hud.phaseEyebrow.textContent = `MANCHE ${this.raceState.round} · CIRCUIT AURORE`;
+      this.hud.phaseTitle.textContent = "GRILLE DE DÉPART";
+      this.hud.phaseDetail.textContent =
+        players.length === 0
+          ? "Synchronisation des pilotes…"
+          : `${readyCount}/${players.length} pilote${players.length > 1 ? "s" : ""} prêt${readyCount > 1 ? "s" : ""}`;
+      this.setStartLights(0);
+      return;
+    }
+
+    if (phase === "countdown") {
+      const countdown = Math.max(1, Math.min(3, secondsRemaining));
+      this.hud.raceOverlay.hidden = false;
+      this.hud.phaseEyebrow.textContent = `MANCHE ${this.raceState.round}`;
+      this.hud.phaseTitle.textContent = String(countdown);
+      this.hud.phaseDetail.textContent = "Moteurs prêts";
+      this.hud.phaseStandings.hidden = true;
+      this.setStartLights(4 - countdown);
+      return;
+    }
+
+    if (phase === "racing") {
+      const justStarted =
+        this.raceState.serverTick - this.raceState.raceStartedAtTick <
+        SIMULATION_HZ;
+      if (localPlayer?.finishPosition) {
+        this.hud.raceOverlay.hidden = false;
+        this.hud.raceOverlay.dataset.phase = "finished";
+        this.hud.phaseEyebrow.textContent = "ARRIVÉE VALIDÉE";
+        this.hud.phaseTitle.textContent = ordinal(localPlayer.finishPosition);
+        this.hud.phaseDetail.textContent =
+          `${formatRaceTime(localPlayer.finishTimeMs)} · En attente des autres pilotes`;
+        this.hud.phaseStandings.hidden = false;
+        this.setStartLights(0);
+      } else if (justStarted) {
+        this.hud.raceOverlay.hidden = false;
+        this.hud.phaseEyebrow.textContent = "BUMPSHIFT";
+        this.hud.phaseTitle.textContent = "GO !";
+        this.hud.phaseDetail.textContent = "Dérape. Frappe. Termine premier.";
+        this.hud.phaseStandings.hidden = true;
+        this.setStartLights(3);
+      } else {
+        this.hud.raceOverlay.hidden = true;
+      }
+      return;
+    }
+
+    this.hud.raceOverlay.hidden = false;
+    this.hud.phaseEyebrow.textContent = `MANCHE ${this.raceState.round} TERMINÉE`;
+    this.hud.phaseTitle.textContent = localPlayer?.finishPosition
+      ? ordinal(localPlayer.finishPosition)
+      : "COURSE TERMINÉE";
+    this.hud.phaseDetail.textContent =
+      `Nouvelle grille dans ${secondsRemaining}s`;
+    this.hud.phaseStandings.hidden = false;
+    this.setStartLights(0);
+  }
+
+  private renderStandings(
+    players: readonly PlayerSnapshot[],
+    showReadyState: boolean
+  ): void {
+    const rows = players.map((player) => {
+      const row = document.createElement("div");
+      row.className = "standing-row";
+      if (player.id === this.localPlayerId) {
+        row.classList.add("is-local");
+      }
+
+      const position = document.createElement("span");
+      position.className = "standing-row__position";
+      position.textContent = showReadyState
+        ? player.ready
+          ? "✓"
+          : "·"
+        : `#${player.position}`;
+
+      const name = document.createElement("strong");
+      name.textContent = player.name;
+
+      const status = document.createElement("span");
+      status.className = "standing-row__status";
+      status.textContent = showReadyState
+        ? player.ready
+          ? "PRÊT"
+          : "EN ATTENTE"
+        : player.finishPosition > 0
+          ? formatRaceTime(player.finishTimeMs)
+          : this.raceState.phase === "results"
+            ? "DNF"
+            : "EN COURSE";
+
+      row.append(position, name, status);
+      return row;
+    });
+
+    this.hud.phaseStandings.replaceChildren(...rows);
+    this.hud.phaseStandings.hidden = players.length === 0;
+  }
+
+  private setStartLights(litCount: number): void {
+    const lights = this.hud.phaseLights.querySelectorAll<HTMLElement>(
+      ".start-light"
+    );
+    lights.forEach((light, index) => {
+      light.classList.toggle("is-lit", index < litCount);
+    });
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
+    this.hud.readyButton.removeEventListener(
+      "click",
+      this.readyClickHandler
+    );
     this.input.dispose();
     if (this.connection) {
       await this.connection.dispose();

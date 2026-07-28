@@ -187,9 +187,9 @@ export function createSpawnState(slot: number): KartState {
     boostTime: 0,
     drifting: false,
     lap: 1,
+    checkpoint: 0,
     progress: projection.progress,
     finished: false,
     lastProcessedInput: 0
   };
 }
-

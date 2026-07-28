@@ -3,11 +3,17 @@ import {
   getStateCallbacks,
   type Room
 } from "@colyseus/sdk";
-import type { KartInput, PlayerSnapshot } from "@bumpshift/shared";
+import {
+  sanitizeRacePhase,
+  type KartInput,
+  type PlayerSnapshot,
+  type RaceSnapshot
+} from "@bumpshift/shared";
 
 interface WirePlayer {
   name: string;
   colorIndex: number;
+  ready: boolean;
   x: number;
   z: number;
   heading: number;
@@ -17,18 +23,28 @@ interface WirePlayer {
   boostTime: number;
   drifting: boolean;
   lap: number;
+  checkpoint: number;
   progress: number;
   finished: boolean;
+  position: number;
+  finishPosition: number;
+  finishTimeMs: number;
   lastProcessedInput: number;
 }
 
 interface WireState {
   players: unknown;
+  phase: string;
+  serverTick: number;
+  phaseEndsAtTick: number;
+  raceStartedAtTick: number;
+  round: number;
 }
 
 export interface NetworkEvents {
   onPlayer(snapshot: PlayerSnapshot): void;
   onPlayerLeft(playerId: string): void;
+  onRace(snapshot: RaceSnapshot): void;
   onLatency(latencyMilliseconds: number): void;
   onDisconnect(): void;
 }
@@ -50,6 +66,7 @@ const snapshotPlayer = (
   id: playerId,
   name: player.name,
   colorIndex: player.colorIndex,
+  ready: player.ready,
   x: player.x,
   z: player.z,
   heading: player.heading,
@@ -59,9 +76,21 @@ const snapshotPlayer = (
   boostTime: player.boostTime,
   drifting: player.drifting,
   lap: player.lap,
+  checkpoint: player.checkpoint,
   progress: player.progress,
   finished: player.finished,
+  position: player.position,
+  finishPosition: player.finishPosition,
+  finishTimeMs: player.finishTimeMs,
   lastProcessedInput: player.lastProcessedInput
+});
+
+const snapshotRace = (state: WireState): RaceSnapshot => ({
+  phase: sanitizeRacePhase(state.phase),
+  serverTick: state.serverTick,
+  phaseEndsAtTick: state.phaseEndsAtTick,
+  raceStartedAtTick: state.raceStartedAtTick,
+  round: state.round
 });
 
 export class NetworkSession {
@@ -77,6 +106,9 @@ export class NetworkSession {
     const callbacks = getStateCallbacks(room);
     const state = room.state as unknown as WireState;
     const stateCallbacks = callbacks(state);
+    const publishRace = (): void => {
+      events.onRace(snapshotRace(state));
+    };
 
     stateCallbacks.players.onAdd(
       (player: WirePlayer, playerId: string) => {
@@ -93,6 +125,8 @@ export class NetworkSession {
         events.onPlayerLeft(playerId);
       }
     );
+    publishRace();
+    stateCallbacks.onChange(publishRace);
 
     room.onMessage("pong", (sentAt: number) => {
       events.onLatency(Math.max(0, Math.round(performance.now() - sentAt)));
@@ -122,9 +156,12 @@ export class NetworkSession {
     this.room.send("input", input);
   }
 
+  sendReady(ready: boolean): void {
+    this.room.send("ready", ready);
+  }
+
   async dispose(): Promise<void> {
     window.clearInterval(this.pingInterval);
     await this.room.leave();
   }
 }
-

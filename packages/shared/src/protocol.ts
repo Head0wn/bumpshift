@@ -2,6 +2,27 @@ export const MAX_PLAYERS = 12;
 export const TOTAL_LAPS = 3;
 export const SIMULATION_HZ = 60;
 export const FIXED_TIMESTEP = 1 / SIMULATION_HZ;
+export const CHECKPOINT_COUNT = 8;
+export const COUNTDOWN_TICKS = SIMULATION_HZ * 3;
+export const FINISH_GRACE_TICKS = SIMULATION_HZ * 30;
+export const RESULTS_TICKS = SIMULATION_HZ * 10;
+
+export const RACE_PHASES = [
+  "waiting",
+  "countdown",
+  "racing",
+  "results"
+] as const;
+
+export type RacePhase = (typeof RACE_PHASES)[number];
+
+export interface RaceSnapshot {
+  phase: RacePhase;
+  serverTick: number;
+  phaseEndsAtTick: number;
+  raceStartedAtTick: number;
+  round: number;
+}
 
 export interface KartInput {
   sequence: number;
@@ -21,6 +42,7 @@ export interface KartState {
   boostTime: number;
   drifting: boolean;
   lap: number;
+  checkpoint: number;
   progress: number;
   finished: boolean;
   lastProcessedInput: number;
@@ -30,6 +52,10 @@ export interface PlayerSnapshot extends KartState {
   id: string;
   name: string;
   colorIndex: number;
+  ready: boolean;
+  position: number;
+  finishPosition: number;
+  finishTimeMs: number;
 }
 
 export const NEUTRAL_INPUT: Readonly<KartInput> = Object.freeze({
@@ -82,3 +108,9 @@ export function sanitizePlayerName(value: unknown): string {
   return cleaned || "Pilote";
 }
 
+export function sanitizeRacePhase(value: unknown): RacePhase {
+  return typeof value === "string" &&
+    (RACE_PHASES as readonly string[]).includes(value)
+    ? (value as RacePhase)
+    : "waiting";
+}

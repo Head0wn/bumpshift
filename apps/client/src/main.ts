@@ -37,7 +37,14 @@ const bootstrap = async (): Promise<void> => {
     lap: requireElement<HTMLElement>("#lap"),
     speed: requireElement<HTMLElement>("#speed"),
     driftFill: requireElement<HTMLElement>("#drift-fill"),
-    driftLevel: requireElement<HTMLElement>("#drift-level")
+    driftLevel: requireElement<HTMLElement>("#drift-level"),
+    raceOverlay: requireElement<HTMLElement>("#race-overlay"),
+    phaseEyebrow: requireElement<HTMLElement>("#phase-eyebrow"),
+    phaseTitle: requireElement<HTMLElement>("#phase-title"),
+    phaseDetail: requireElement<HTMLElement>("#phase-detail"),
+    phaseLights: requireElement<HTMLElement>("#phase-lights"),
+    phaseStandings: requireElement<HTMLElement>("#phase-standings"),
+    readyButton: requireElement<HTMLButtonElement>("#ready-button")
   };
 
   const game = await BumpshiftGame.create(canvas, touchRoot, hud);
@@ -89,4 +96,3 @@ void bootstrap().catch((error: unknown) => {
       "Le moteur 3D n’a pas pu démarrer sur ce navigateur.";
   }
 });
-

@@ -105,6 +105,29 @@
       </div>
     </section>
 
+    <section
+      id="race-overlay"
+      class="race-overlay"
+      data-phase="waiting"
+      hidden
+      aria-live="polite"
+    >
+      <div class="race-overlay__panel">
+        <div id="phase-lights" class="start-lights" aria-hidden="true">
+          <i class="start-light"></i>
+          <i class="start-light"></i>
+          <i class="start-light"></i>
+        </div>
+        <span id="phase-eyebrow" class="race-overlay__eyebrow">MANCHE 1</span>
+        <strong id="phase-title" class="race-overlay__title">GRILLE DE DÉPART</strong>
+        <p id="phase-detail" class="race-overlay__detail">Synchronisation des pilotes…</p>
+        <div id="phase-standings" class="phase-standings"></div>
+        <button id="ready-button" class="ready-button" type="button">
+          JE SUIS PRÊT
+        </button>
+      </div>
+    </section>
+
     <section id="touch-controls" class="touch-controls" aria-label="Commandes tactiles">
       <div class="touch-controls__steer">
         <button data-input="left" aria-label="Tourner à gauche">‹</button>
@@ -120,4 +143,3 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-

@@ -425,6 +425,214 @@ button {
   left: 61%;
 }
 
+.race-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at center,
+    rgba(3, 10, 9, 0.22),
+    transparent 58%
+  );
+}
+
+.race-overlay__panel {
+  display: flex;
+  width: min(440px, calc(100vw - 36px));
+  max-height: min(680px, calc(100vh - 48px));
+  flex-direction: column;
+  align-items: center;
+  padding: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(241, 251, 247, 0.12);
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgba(17, 32, 29, 0.88), rgba(5, 13, 12, 0.92)),
+    var(--panel);
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.46),
+    inset 0 1px rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(22px);
+}
+
+.race-overlay__eyebrow {
+  color: var(--acid);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.race-overlay__title {
+  margin-top: 12px;
+  font-size: clamp(34px, 6vw, 56px);
+  font-weight: 950;
+  font-style: italic;
+  letter-spacing: -0.07em;
+  line-height: 0.94;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.race-overlay__detail {
+  margin: 12px 0 0;
+  color: rgba(242, 251, 248, 0.56);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.start-lights {
+  display: none;
+  gap: 9px;
+  margin-bottom: 20px;
+  padding: 8px 10px;
+  border: 1px solid rgba(246, 252, 250, 0.1);
+  border-radius: 999px;
+  background: rgba(2, 7, 6, 0.7);
+}
+
+.start-light {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #321615;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
+  transition:
+    background 100ms ease,
+    box-shadow 100ms ease,
+    transform 100ms ease;
+}
+
+.start-light.is-lit {
+  transform: scale(1.08);
+  background: var(--coral);
+  box-shadow:
+    0 0 18px rgba(255, 95, 85, 0.78),
+    inset 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.phase-standings {
+  width: 100%;
+  margin-top: 24px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(242, 251, 248, 0.08);
+}
+
+.standing-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 42px;
+  border-bottom: 1px solid rgba(242, 251, 248, 0.07);
+  color: rgba(242, 251, 248, 0.58);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.standing-row.is-local {
+  color: #f7fbf9;
+}
+
+.standing-row__position {
+  color: var(--acid);
+  font-weight: 950;
+}
+
+.standing-row strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standing-row__status {
+  color: rgba(242, 251, 248, 0.4);
+  font-size: 9px;
+}
+
+.standing-row.is-local .standing-row__status {
+  color: var(--cyan);
+}
+
+.ready-button {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 20px;
+  pointer-events: auto;
+  border: 0;
+  border-radius: 10px;
+  color: #08100c;
+  background: var(--acid);
+  box-shadow: 0 12px 34px rgba(186, 252, 75, 0.16);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  transition:
+    transform 120ms ease,
+    filter 120ms ease;
+}
+
+.ready-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.ready-button:active {
+  transform: translateY(1px);
+}
+
+.race-overlay[data-phase="countdown"],
+.race-overlay[data-phase="racing"] {
+  background: radial-gradient(
+    circle at center,
+    rgba(3, 10, 9, 0.12),
+    transparent 48%
+  );
+}
+
+.race-overlay[data-phase="countdown"] .race-overlay__panel,
+.race-overlay[data-phase="racing"] .race-overlay__panel {
+  width: auto;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.race-overlay[data-phase="countdown"] .start-lights,
+.race-overlay[data-phase="racing"] .start-lights {
+  display: flex;
+}
+
+.race-overlay[data-phase="countdown"] .race-overlay__title,
+.race-overlay[data-phase="racing"] .race-overlay__title {
+  font-size: clamp(96px, 20vw, 190px);
+  line-height: 0.72;
+  text-shadow: 0 18px 54px rgba(0, 0, 0, 0.48);
+}
+
+.race-overlay[data-phase="racing"] .start-light {
+  transform: scale(1.08);
+  background: var(--acid);
+  box-shadow:
+    0 0 18px rgba(186, 252, 75, 0.8),
+    inset 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.race-overlay[data-phase="finished"] .race-overlay__title,
+.race-overlay[data-phase="results"] .race-overlay__title {
+  color: var(--acid);
+}
+
 .touch-controls {
   position: fixed;
   z-index: 8;
@@ -489,7 +697,7 @@ button {
   background: rgba(186, 252, 75, 0.84);
 }
 
-body.is-racing .touch-controls {
+body.is-driving .touch-controls {
   display: none;
 }
 
@@ -499,7 +707,7 @@ body.is-boosting .hud__speed strong {
 }
 
 @media (pointer: coarse), (max-width: 820px) {
-  body.is-racing .touch-controls {
+  body.is-driving .touch-controls {
     display: flex;
   }
 
@@ -578,6 +786,25 @@ body.is-boosting .hud__speed strong {
     bottom: 108px;
     width: min(250px, 60vw);
   }
+
+  .race-overlay {
+    align-items: center;
+    padding:
+      max(18px, env(safe-area-inset-top))
+      max(18px, env(safe-area-inset-right))
+      max(18px, env(safe-area-inset-bottom))
+      max(18px, env(safe-area-inset-left));
+  }
+
+  .race-overlay__panel {
+    max-height: calc(100vh - 36px);
+    padding: 24px 20px;
+  }
+
+  .race-overlay[data-phase="countdown"] .race-overlay__title,
+  .race-overlay[data-phase="racing"] .race-overlay__title {
+    font-size: clamp(88px, 30vw, 150px);
+  }
 }
 
 @media (max-height: 620px) and (pointer: coarse) {
@@ -607,4 +834,3 @@ body.is-boosting .hud__speed strong {
     height: 66px;
   }
 }
-
