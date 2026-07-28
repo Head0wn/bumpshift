@@ -10,6 +10,7 @@ La branche de développement contient maintenant une boucle de course multijoueu
 
 - vrai menu principal avec sélection du circuit, garage et paramètres persistants ;
 - deux circuits 3D procéduraux : Circuit Aurore et Riviera Royale ;
+- circuits en relief avec ciel diurne, ombres, murs de soutènement et matériaux procéduraux ;
 - décors dédiés (forêt boréale, principauté, port, yachts et tunnel) ;
 - karts détaillés avec huit livrées visibles par tous les pilotes ;
 - kart arcade avec accélération, freinage et marche arrière ;

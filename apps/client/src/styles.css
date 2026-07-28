@@ -59,12 +59,12 @@ button {
 
 .vignette {
   background:
-    linear-gradient(180deg, rgba(2, 6, 6, 0.28), transparent 34%, transparent 70%, rgba(2, 6, 6, 0.56)),
-    radial-gradient(circle at center, transparent 52%, rgba(1, 5, 5, 0.5) 120%);
+    linear-gradient(180deg, rgba(4, 11, 13, 0.08), transparent 34%, transparent 72%, rgba(4, 11, 13, 0.24)),
+    radial-gradient(circle at center, transparent 64%, rgba(3, 9, 10, 0.2) 125%);
 }
 
 .noise {
-  opacity: 0.035;
+  opacity: 0.018;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
 }
 
@@ -288,7 +288,7 @@ button {
 
 .hud__position {
   position: absolute;
-  top: 12vh;
+  top: 11vh;
   left: max(28px, env(safe-area-inset-left));
   display: flex;
   align-items: baseline;
@@ -299,7 +299,7 @@ button {
 
 .hud__position strong {
   color: var(--acid);
-  font-size: clamp(64px, 9vw, 104px);
+  font-size: clamp(54px, 7vw, 78px);
   font-weight: 950;
   letter-spacing: -0.09em;
   line-height: 0.8;
@@ -313,7 +313,7 @@ button {
 
 .hud__lap {
   position: absolute;
-  top: calc(12vh + 88px);
+  top: calc(11vh + 68px);
   left: max(32px, env(safe-area-inset-left));
   display: flex;
   align-items: center;
@@ -351,7 +351,7 @@ button {
 }
 
 .hud__speed strong {
-  font-size: clamp(62px, 8vw, 96px);
+  font-size: clamp(56px, 7vw, 82px);
   font-weight: 950;
   font-style: italic;
   letter-spacing: -0.085em;

@@ -152,7 +152,9 @@ export function resolveKartCollisions(
         const deltaX = second.x - first.x;
         const deltaZ = second.z - first.z;
         const distance = Math.hypot(deltaX, deltaZ);
-        if (distance >= minimumDistance) {
+        const rawProgressGap = Math.abs(first.progress - second.progress);
+        const progressGap = Math.min(rawProgressGap, 1 - rawProgressGap);
+        if (distance >= minimumDistance || progressGap > 0.055) {
           continue;
         }
 

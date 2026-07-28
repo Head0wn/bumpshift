@@ -19,6 +19,11 @@ export interface TrackProjection {
   progress: number;
 }
 
+export interface ElevationPoint {
+  progress: number;
+  height: number;
+}
+
 export interface TrackDefinition {
   id: TrackId;
   name: string;
@@ -28,6 +33,7 @@ export interface TrackDefinition {
   width: number;
   samplesPerSegment: number;
   controlPoints: readonly Vec2[];
+  elevationProfile: readonly ElevationPoint[];
   centerline: readonly Vec2[];
 }
 
@@ -174,6 +180,14 @@ export const TRACKS: readonly TrackDefinition[] = Object.freeze([
     difficulty: "Accessible",
     width: 15,
     samplesPerSegment: 14,
+    elevationProfile: [
+      { progress: 0, height: 0 },
+      { progress: 0.18, height: 1.4 },
+      { progress: 0.38, height: 0.4 },
+      { progress: 0.62, height: 2.2 },
+      { progress: 0.82, height: 0.8 },
+      { progress: 1, height: 0 }
+    ],
     controlPoints: AURORA_CONTROL_POINTS
   }),
   defineTrack({
@@ -184,6 +198,18 @@ export const TRACKS: readonly TrackDefinition[] = Object.freeze([
     difficulty: "Technique",
     width: 10.2,
     samplesPerSegment: 10,
+    elevationProfile: [
+      { progress: 0, height: 0 },
+      { progress: 0.1, height: 0.8 },
+      { progress: 0.2, height: 5.2 },
+      { progress: 0.32, height: 10.5 },
+      { progress: 0.43, height: 12.4 },
+      { progress: 0.54, height: 8.8 },
+      { progress: 0.64, height: 4.6 },
+      { progress: 0.74, height: 1.2 },
+      { progress: 0.88, height: 0 },
+      { progress: 1, height: 0 }
+    ],
     controlPoints: RIVIERA_ROYALE_CONTROL_POINTS
   })
 ]);
@@ -209,6 +235,29 @@ export function trackLength(trackId: TrackId = DEFAULT_TRACK_ID): number {
     length += Math.hypot(end.x - start.x, end.z - start.z);
   }
   return length;
+}
+
+export function trackHeightAtProgress(
+  trackId: TrackId,
+  progress: number
+): number {
+  const profile = getTrackDefinition(trackId).elevationProfile;
+  const normalized = ((progress % 1) + 1) % 1;
+
+  for (let index = 1; index < profile.length; index += 1) {
+    const previous = profile[index - 1];
+    const next = profile[index];
+    if (!previous || !next || normalized > next.progress) {
+      continue;
+    }
+
+    const span = Math.max(Number.EPSILON, next.progress - previous.progress);
+    const amount = (normalized - previous.progress) / span;
+    const eased = amount * amount * (3 - 2 * amount);
+    return previous.height + (next.height - previous.height) * eased;
+  }
+
+  return profile.at(-1)?.height ?? 0;
 }
 
 export function projectToTrack(

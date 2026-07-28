@@ -3,6 +3,7 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
+import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
@@ -14,6 +15,7 @@ import {
   createSpawnState,
   getTrackDefinition,
   stepKart,
+  trackHeightAtProgress,
   type KartInput,
   type KartState,
   type PlayerSnapshot,
@@ -94,6 +96,17 @@ const formatRaceTime = (milliseconds: number): string => {
   return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 };
 
+const KART_SHADOW_MESHES = new Set([
+  "kart-undertray",
+  "kart-main-shell",
+  "kart-engine-cover",
+  "kart-side-pod",
+  "kart-tire",
+  "kart-wing",
+  "pilot-torso",
+  "pilot-helmet"
+]);
+
 const createRenderingEngine = (canvas: HTMLCanvasElement): Engine =>
   new Engine(
     canvas,
@@ -115,6 +128,9 @@ export class BumpshiftGame {
   private readonly input: InputController;
   private readonly hud: HudElements;
   private readonly glow: GlowLayer;
+  private readonly hemisphere: HemisphericLight;
+  private readonly sun: DirectionalLight;
+  private readonly shadows: ShadowGenerator;
   private readonly visuals = new Map<string, KartVisual>();
   private readonly snapshots = new Map<string, PlayerSnapshot>();
   private readonly pendingInputs: KartInput[] = [];
@@ -140,6 +156,9 @@ export class BumpshiftGame {
     input: InputController,
     hud: HudElements,
     glow: GlowLayer,
+    hemisphere: HemisphericLight,
+    sun: DirectionalLight,
+    shadows: ShadowGenerator,
     trackVisual: TrackVisualHandle
   ) {
     this.engine = engine;
@@ -148,6 +167,9 @@ export class BumpshiftGame {
     this.input = input;
     this.hud = hud;
     this.glow = glow;
+    this.hemisphere = hemisphere;
+    this.sun = sun;
+    this.shadows = shadows;
     this.trackVisual = trackVisual;
     this.readyClickHandler = () => {
       if (!this.connection || this.raceState.phase !== "waiting") {
@@ -175,42 +197,47 @@ export class BumpshiftGame {
     );
 
     const scene = new Scene(engine);
-    scene.clearColor = Color4.FromHexString("#07100fff");
+    scene.clearColor = Color4.FromHexString("#6faed2ff");
     scene.fogMode = Scene.FOGMODE_LINEAR;
-    scene.fogColor = Color3.FromHexString("#07100f");
-    scene.fogStart = 82;
-    scene.fogEnd = 188;
-    scene.imageProcessingConfiguration.contrast = 1.18;
-    scene.imageProcessingConfiguration.exposure = 1.08;
+    scene.fogColor = Color3.FromHexString("#b7d7c5");
+    scene.fogStart = 118;
+    scene.fogEnd = 245;
+    scene.imageProcessingConfiguration.contrast = 1.08;
+    scene.imageProcessingConfiguration.exposure = 1.05;
 
     const hemisphere = new HemisphericLight(
       "ambient",
       new Vector3(0, 1, 0),
       scene
     );
-    hemisphere.intensity = 0.72;
-    hemisphere.diffuse = Color3.FromHexString("#bfe8df");
-    hemisphere.groundColor = Color3.FromHexString("#10201d");
+    hemisphere.intensity = 1.02;
+    hemisphere.diffuse = Color3.FromHexString("#d9eff3");
+    hemisphere.groundColor = Color3.FromHexString("#52704a");
 
     const sun = new DirectionalLight(
       "sun",
-      new Vector3(-0.35, -0.82, 0.28),
+      new Vector3(-0.42, -0.78, 0.32),
       scene
     );
-    sun.position = new Vector3(34, 70, -24);
-    sun.intensity = 1.24;
-    sun.diffuse = Color3.FromHexString("#d7fff1");
+    sun.position = new Vector3(48, 86, -34);
+    sun.intensity = 1.55;
+    sun.diffuse = Color3.FromHexString("#fff0c9");
+
+    const shadows = new ShadowGenerator(1024, sun);
+    shadows.useBlurExponentialShadowMap = true;
+    shadows.blurKernel = 18;
+    shadows.setDarkness(0.28);
 
     const glow = new GlowLayer("neon", scene, {
       blurKernelSize: 24
     });
-    glow.intensity = 0.45;
+    glow.intensity = 0.2;
 
     const trackVisual = createTrackVisual(scene, DEFAULT_TRACK_ID);
 
     const camera = new UniversalCamera(
       "race-camera",
-      new Vector3(0, 62, -86),
+      new Vector3(0, 54, -82),
       scene
     );
     camera.fov = 0.92;
@@ -233,8 +260,12 @@ export class BumpshiftGame {
       input,
       hud,
       glow,
+      hemisphere,
+      sun,
+      shadows,
       trackVisual
     );
+    game.registerEnvironmentShadows(trackVisual);
     game.applySettings(DEFAULT_GAME_SETTINGS);
 
     const onResize = (): void => {
@@ -273,10 +304,12 @@ export class BumpshiftGame {
     this.engine.setHardwareScalingLevel(hardwareScaling);
     this.glow.intensity =
       this.settings.graphicsQuality === "performance"
-        ? 0.26
+        ? 0.08
         : this.settings.graphicsQuality === "quality"
-          ? 0.52
-          : 0.42;
+          ? 0.24
+          : 0.16;
+    this.sun.shadowEnabled =
+      this.settings.graphicsQuality !== "performance";
     this.engine.resize();
   }
 
@@ -316,6 +349,7 @@ export class BumpshiftGame {
 
     this.connection = connection;
     this.localPlayerId = connection.sessionId;
+    this.visuals.get(this.localPlayerId)?.setLocalPlayer(true);
     this.connected = true;
     this.hud.hud.hidden = false;
     this.hud.connectionLabel.textContent = "Course en ligne";
@@ -332,16 +366,30 @@ export class BumpshiftGame {
       return;
     }
 
+    this.unregisterEnvironmentShadows(this.trackVisual);
     this.trackVisual.dispose();
     this.trackVisual = createTrackVisual(this.scene, trackId);
+    this.registerEnvironmentShadows(this.trackVisual);
     const isRiviera = trackId === "riviera-royale";
-    const background = isRiviera ? "#07141c" : "#07100f";
+    const background = isRiviera ? "#69add6" : "#6faed2";
+    const fog = isRiviera ? "#c9d9d5" : "#b7d7c5";
     this.scene.clearColor = Color4.FromHexString(`${background}ff`);
-    this.scene.fogColor = Color3.FromHexString(background);
-    this.scene.fogStart = isRiviera ? 92 : 82;
-    this.scene.fogEnd = isRiviera ? 205 : 188;
-    this.camera.position.set(0, isRiviera ? 68 : 62, -86);
-    this.cameraTarget.set(0, 1, 0);
+    this.scene.fogColor = Color3.FromHexString(fog);
+    this.scene.fogStart = isRiviera ? 128 : 118;
+    this.scene.fogEnd = isRiviera ? 255 : 245;
+    this.hemisphere.diffuse = Color3.FromHexString(
+      isRiviera ? "#e8f2f4" : "#d9eff3"
+    );
+    this.hemisphere.groundColor = Color3.FromHexString(
+      isRiviera ? "#8b7256" : "#52704a"
+    );
+    this.hemisphere.intensity = isRiviera ? 1.08 : 1.02;
+    this.sun.diffuse = Color3.FromHexString(
+      isRiviera ? "#ffe1ae" : "#fff0c9"
+    );
+    this.sun.intensity = isRiviera ? 1.7 : 1.55;
+    this.camera.position.set(0, isRiviera ? 62 : 54, -82);
+    this.cameraTarget.set(0, 3, 0);
     this.camera.setTarget(this.cameraTarget);
   }
 
@@ -355,8 +403,19 @@ export class BumpshiftGame {
         snapshot.colorIndex,
         snapshot.name
       );
+      visual.setLocalPlayer(snapshot.id === this.localPlayerId);
       this.visuals.set(snapshot.id, visual);
-      visual.update(snapshotToState(snapshot), FIXED_TIMESTEP, true);
+      for (const mesh of visual.root.getChildMeshes()) {
+        if (KART_SHADOW_MESHES.has(mesh.name)) {
+          this.shadows.addShadowCaster(mesh, false);
+        }
+      }
+      visual.update(
+        snapshotToState(snapshot),
+        FIXED_TIMESTEP,
+        this.raceState.trackId,
+        true
+      );
     }
 
     if (snapshot.id !== this.localPlayerId || !this.predictedState) {
@@ -395,10 +454,45 @@ export class BumpshiftGame {
     this.refreshRaceOverlay();
   }
 
+  private registerEnvironmentShadows(
+    trackVisual: TrackVisualHandle
+  ): void {
+    const excludedNames = new Set([
+      "ground",
+      "sky",
+      "sun-disc",
+      "harbor-water",
+      "road-markings"
+    ]);
+    for (const mesh of trackVisual.meshes) {
+      if (
+        excludedNames.has(mesh.name) ||
+        mesh.name.startsWith("kart-") ||
+        mesh.name.startsWith("pilot-")
+      ) {
+        continue;
+      }
+      this.shadows.addShadowCaster(mesh, false);
+    }
+  }
+
+  private unregisterEnvironmentShadows(
+    trackVisual: TrackVisualHandle
+  ): void {
+    for (const mesh of trackVisual.meshes) {
+      this.shadows.removeShadowCaster(mesh, false);
+    }
+  }
+
   private removePlayer(playerId: string): void {
     this.snapshots.delete(playerId);
     const visual = this.visuals.get(playerId);
     if (visual) {
+      for (const mesh of visual.root.getChildMeshes()) {
+        if (KART_SHADOW_MESHES.has(mesh.name)) {
+          this.shadows.removeShadowCaster(mesh, false);
+        }
+      }
       visual.dispose();
       this.visuals.delete(playerId);
     }
@@ -505,16 +599,28 @@ export class BumpshiftGame {
 
     for (const [playerId, visual] of this.visuals) {
       if (playerId === this.localPlayerId) {
-        visual.update(localState, deltaSeconds);
+        visual.update(
+          localState,
+          deltaSeconds,
+          this.raceState.trackId
+        );
         continue;
       }
 
       const snapshot = this.snapshots.get(playerId);
       if (snapshot) {
-        visual.update(snapshotToState(snapshot), deltaSeconds);
+        visual.update(
+          snapshotToState(snapshot),
+          deltaSeconds,
+          this.raceState.trackId
+        );
       }
     }
 
+    const trackHeight = trackHeightAtProgress(
+      this.raceState.trackId,
+      localState.progress
+    );
     const forward = new Vector3(
       Math.sin(localState.heading),
       0,
@@ -522,11 +628,19 @@ export class BumpshiftGame {
     );
     const speedRatio = Math.min(1, Math.abs(localState.speed) / 34);
     const motion = this.settings.cameraMotion;
-    const desiredPosition = new Vector3(localState.x, 0.55, localState.z)
-      .subtract(forward.scale(8.8 + speedRatio * 1.8 * motion))
-      .add(new Vector3(0, 4.25 + speedRatio * 0.65 * motion, 0));
-    const desiredTarget = new Vector3(localState.x, 1.05, localState.z).add(
-      forward.scale(4.8 + speedRatio * 2.5)
+    const desiredPosition = new Vector3(
+      localState.x,
+      trackHeight + 0.6,
+      localState.z
+    )
+      .subtract(forward.scale(7.1 + speedRatio * 1.25 * motion))
+      .add(new Vector3(0, 3.1 + speedRatio * 0.42 * motion, 0));
+    const desiredTarget = new Vector3(
+      localState.x,
+      trackHeight + 1.05,
+      localState.z
+    ).add(
+      forward.scale(5.2 + speedRatio * 2.2)
     );
     const cameraAmount = 1 - Math.exp(-deltaSeconds * 7.5);
     Vector3.LerpToRef(
@@ -543,7 +657,7 @@ export class BumpshiftGame {
     );
     this.camera.setTarget(this.cameraTarget);
     this.camera.fov +=
-      (0.88 + speedRatio * 0.12 * motion - this.camera.fov) *
+      (0.86 + speedRatio * 0.09 * motion - this.camera.fov) *
       (1 - Math.exp(-deltaSeconds * 4));
 
     this.updateHud(localState);
@@ -552,9 +666,9 @@ export class BumpshiftGame {
   private updateAttractCamera(deltaSeconds: number): void {
     const time = performance.now() / 1000;
     const desired = new Vector3(
-      Math.cos(time * 0.1) * 96,
-      52 + Math.sin(time * 0.14) * 7,
-      Math.sin(time * 0.1) * 96
+      Math.cos(time * 0.08) * 104,
+      46 + Math.sin(time * 0.12) * 5,
+      Math.sin(time * 0.08) * 104
     );
     const amount = 1 - Math.exp(-deltaSeconds * 0.8);
     Vector3.LerpToRef(
@@ -565,7 +679,7 @@ export class BumpshiftGame {
     );
     this.cameraTarget = Vector3.Lerp(
       this.cameraTarget,
-      new Vector3(0, 0, 0),
+      new Vector3(0, 4, 0),
       amount
     );
     this.camera.setTarget(this.cameraTarget);
@@ -750,6 +864,7 @@ export class BumpshiftGame {
       this.readyClickHandler
     );
     this.input.dispose();
+    this.unregisterEnvironmentShadows(this.trackVisual);
     this.trackVisual.dispose();
     if (this.connection) {
       await this.connection.dispose();

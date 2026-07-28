@@ -6,17 +6,21 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
-import type { KartState } from "@bumpshift/shared";
+import {
+  trackHeightAtProgress,
+  type KartState,
+  type TrackId
+} from "@bumpshift/shared";
 
 export const KART_PALETTES = [
-  { name: "Volt", color: "#bafc4b" },
-  { name: "Ion", color: "#4cf4e6" },
-  { name: "Impact", color: "#ff5f55" },
-  { name: "Spectre", color: "#9d7cff" },
-  { name: "Solar", color: "#ffcb44" },
-  { name: "Cobalt", color: "#4b92ff" },
-  { name: "Pulse", color: "#ff70c8" },
-  { name: "Arctique", color: "#f2f5f2" }
+  { name: "Volt", color: "#d7ef54" },
+  { name: "Ion", color: "#35cfc5" },
+  { name: "Impact", color: "#e95249" },
+  { name: "Spectre", color: "#8f73d8" },
+  { name: "Solar", color: "#f2b93f" },
+  { name: "Cobalt", color: "#477fce" },
+  { name: "Pulse", color: "#dc68a8" },
+  { name: "Arctique", color: "#e8ece7" }
 ] as const;
 
 let visualSequence = 0;
@@ -35,23 +39,46 @@ const makeMaterial = (
   diffuse: string,
   emissiveIntensity = 0
 ): StandardMaterial => {
-  const material = new StandardMaterial(name, scene);
+  const result = new StandardMaterial(name, scene);
   const color = Color3.FromHexString(diffuse);
-  material.diffuseColor = color;
-  material.specularColor = new Color3(0.4, 0.4, 0.4);
-  material.emissiveColor = color.scale(emissiveIntensity);
-  return material;
+  result.diffuseColor = color;
+  result.specularColor = new Color3(0.48, 0.5, 0.5);
+  result.specularPower = 72;
+  result.emissiveColor = color.scale(emissiveIntensity);
+  return result;
+};
+
+const ellipsoid = (
+  scene: Scene,
+  name: string,
+  scaling: Vector3,
+  position: Vector3,
+  trackMaterial: StandardMaterial,
+  parent: TransformNode
+): Mesh => {
+  const mesh = MeshBuilder.CreateSphere(
+    name,
+    { diameter: 2, segments: 20 },
+    scene
+  );
+  mesh.scaling.copyFrom(scaling);
+  mesh.position.copyFrom(position);
+  mesh.material = trackMaterial;
+  mesh.parent = parent;
+  return mesh;
 };
 
 export class KartVisual {
   readonly root: TransformNode;
 
   private readonly bodyPivot: TransformNode;
-  private readonly wheels: Mesh[] = [];
+  private readonly frontWheelPivots: TransformNode[] = [];
+  private readonly wheelDetails: TransformNode[] = [];
   private readonly sparks: Mesh[] = [];
   private readonly boostFlames: Mesh[] = [];
-  private wheelRotation = 0;
+  private readonly nameplate: Mesh;
   private readonly accentMaterial: StandardMaterial;
+  private wheelRotation = 0;
 
   constructor(scene: Scene, colorIndex: number, pilotName = "Pilote") {
     const visualId = ++visualSequence;
@@ -61,44 +88,55 @@ export class KartVisual {
     const accentMaterial = makeMaterial(
       scene,
       `kart-accent-${visualId}`,
-      accent,
-      0.08
+      accent
+    );
+    const accentDarkMaterial = makeMaterial(
+      scene,
+      `kart-accent-dark-${visualId}`,
+      Color3.FromHexString(accent).scale(0.62).toHexString()
     );
     const darkMaterial = makeMaterial(
       scene,
       `kart-dark-${visualId}`,
-      "#11181d"
+      "#172026"
     );
+    darkMaterial.specularColor = new Color3(0.22, 0.25, 0.27);
+    const rubberMaterial = makeMaterial(
+      scene,
+      `kart-rubber-${visualId}`,
+      "#111416"
+    );
+    rubberMaterial.specularColor = new Color3(0.08, 0.08, 0.08);
+    const metalMaterial = makeMaterial(
+      scene,
+      `kart-metal-${visualId}`,
+      "#aeb9b9"
+    );
+    metalMaterial.specularColor = new Color3(0.85, 0.9, 0.9);
+    metalMaterial.specularPower = 96;
     const glassMaterial = makeMaterial(
       scene,
       `kart-glass-${visualId}`,
-      "#83dbe0",
-      0.16
+      "#28434e",
+      0.08
     );
-    glassMaterial.alpha = 0.8;
-    const tireMaterial = makeMaterial(
+    glassMaterial.alpha = 0.92;
+    const suitMaterial = makeMaterial(
       scene,
-      `kart-tire-${visualId}`,
-      "#080b0d"
+      `pilot-suit-${visualId}`,
+      "#f1eee4"
     );
     const glowMaterial = makeMaterial(
       scene,
-      `kart-glow-${visualId}`,
-      "#4cf4e6",
+      `kart-effects-${visualId}`,
+      "#58d9d2",
       1
     );
     glowMaterial.disableLighting = true;
-    const rimMaterial = makeMaterial(
-      scene,
-      `kart-rims-${visualId}`,
-      "#9bacb0",
-      0.08
-    );
-    rimMaterial.specularColor = new Color3(0.8, 0.86, 0.86);
     const redLightMaterial = makeMaterial(
       scene,
       `kart-brake-lights-${visualId}`,
-      "#ff4038",
+      "#f34b43",
       1
     );
     redLightMaterial.disableLighting = true;
@@ -110,7 +148,7 @@ export class KartVisual {
 
     const shadow = MeshBuilder.CreateDisc(
       "kart-shadow",
-      { radius: 1.45, tessellation: 24 },
+      { radius: 1.42, tessellation: 36 },
       scene
     );
     const shadowMaterial = makeMaterial(
@@ -118,196 +156,246 @@ export class KartVisual {
       `kart-shadow-${visualId}`,
       "#000000"
     );
-    shadowMaterial.alpha = 0.34;
+    shadowMaterial.alpha = 0.2;
     shadowMaterial.disableLighting = true;
     shadow.material = shadowMaterial;
     shadow.rotation.x = Math.PI / 2;
     shadow.scaling.y = 0.58;
-    shadow.position.y = 0.05;
+    shadow.position.y = 0.035;
     shadow.parent = this.root;
 
-    const chassis = MeshBuilder.CreateBox(
-      "kart-chassis",
-      { width: 1.82, height: 0.5, depth: 2.85 },
+    const undertray = MeshBuilder.CreateCapsule(
+      "kart-undertray",
+      {
+        radius: 0.7,
+        height: 2.7,
+        tessellation: 18,
+        subdivisions: 3
+      },
       scene
     );
-    chassis.material = darkMaterial;
-    chassis.position.y = 0.58;
-    chassis.parent = this.bodyPivot;
+    undertray.material = darkMaterial;
+    undertray.position.set(0, 0.55, 0.05);
+    undertray.rotation.x = Math.PI / 2;
+    undertray.scaling.x = 1.18;
+    undertray.scaling.z = 0.52;
+    undertray.parent = this.bodyPivot;
 
-    const body = MeshBuilder.CreateBox(
-      "kart-body",
-      { width: 1.62, height: 0.42, depth: 2.2 },
-      scene
+    ellipsoid(
+      scene,
+      "kart-main-shell",
+      new Vector3(0.82, 0.26, 1.02),
+      new Vector3(0, 0.78, 0.02),
+      accentMaterial,
+      this.bodyPivot
     );
-    body.material = accentMaterial;
-    body.position.set(0, 0.86, 0.1);
-    body.parent = this.bodyPivot;
-
-    const nose = MeshBuilder.CreateBox(
-      "kart-nose",
-      { width: 1.48, height: 0.26, depth: 0.86 },
-      scene
+    ellipsoid(
+      scene,
+      "kart-nose-shell",
+      new Vector3(0.61, 0.17, 0.62),
+      new Vector3(0, 0.73, 1.08),
+      accentMaterial,
+      this.bodyPivot
     );
-    nose.material = accentMaterial;
-    nose.position.set(0, 0.68, 1.46);
-    nose.scaling.x = 0.86;
-    nose.parent = this.bodyPivot;
+    ellipsoid(
+      scene,
+      "kart-engine-cover",
+      new Vector3(0.62, 0.29, 0.48),
+      new Vector3(0, 0.86, -0.86),
+      accentDarkMaterial,
+      this.bodyPivot
+    );
 
-    const frontBumper = MeshBuilder.CreateBox(
+    for (const side of [-1, 1]) {
+      ellipsoid(
+        scene,
+        "kart-side-pod",
+        new Vector3(0.29, 0.21, 0.68),
+        new Vector3(side * 0.83, 0.65, 0.02),
+        accentDarkMaterial,
+        this.bodyPivot
+      );
+
+      const suspension = MeshBuilder.CreateCylinder(
+        "kart-suspension",
+        { diameter: 0.08, height: 0.72, tessellation: 8 },
+        scene
+      );
+      suspension.material = metalMaterial;
+      suspension.position.set(side * 0.68, 0.52, 0.92);
+      suspension.rotation.z = Math.PI / 2;
+      suspension.parent = this.bodyPivot;
+    }
+
+    const frontBumper = MeshBuilder.CreateCapsule(
       "kart-front-bumper",
-      { width: 2.14, height: 0.16, depth: 0.32 },
+      {
+        radius: 0.11,
+        height: 2.12,
+        tessellation: 12,
+        subdivisions: 2
+      },
       scene
     );
     frontBumper.material = darkMaterial;
-    frontBumper.position.set(0, 0.48, 1.72);
+    frontBumper.position.set(0, 0.45, 1.55);
+    frontBumper.rotation.z = Math.PI / 2;
     frontBumper.parent = this.bodyPivot;
 
-    for (const side of [-1, 1]) {
-      const sidePod = MeshBuilder.CreateBox(
-        "kart-side-pod",
-        { width: 0.34, height: 0.34, depth: 1.64 },
-        scene
-      );
-      sidePod.material = accentMaterial;
-      sidePod.position.set(side * 0.96, 0.67, 0.05);
-      sidePod.rotation.z = side * -0.035;
-      sidePod.parent = this.bodyPivot;
+    const rearBumper = frontBumper.clone("kart-rear-bumper");
+    rearBumper.position.z = -1.5;
 
-      const suspensionFront = MeshBuilder.CreateBox(
-        "kart-front-suspension",
-        { width: 0.74, height: 0.08, depth: 0.1 },
-        scene
-      );
-      suspensionFront.material = rimMaterial;
-      suspensionFront.position.set(side * 0.67, 0.51, 0.95);
-      suspensionFront.rotation.z = side * 0.08;
-      suspensionFront.parent = this.bodyPivot;
-
-      const suspensionRear = suspensionFront.clone("kart-rear-suspension");
-      suspensionRear.position.z = -0.95;
-      suspensionRear.rotation.z = side * -0.08;
-    }
-
-    const cockpit = MeshBuilder.CreateSphere(
-      "kart-cockpit",
-      {
-        diameterX: 0.96,
-        diameterY: 0.72,
-        diameterZ: 1.18,
-        segments: 16
-      },
-      scene
+    const seat = ellipsoid(
+      scene,
+      "kart-seat",
+      new Vector3(0.48, 0.44, 0.55),
+      new Vector3(0, 1.02, -0.28),
+      darkMaterial,
+      this.bodyPivot
     );
-    cockpit.material = glassMaterial;
-    cockpit.position.set(0, 1.2, -0.15);
-    cockpit.parent = this.bodyPivot;
+    seat.scaling.z = 0.46;
 
-    const helmet = MeshBuilder.CreateSphere(
+    ellipsoid(
+      scene,
+      "pilot-torso",
+      new Vector3(0.32, 0.43, 0.29),
+      new Vector3(0, 1.22, -0.22),
+      suitMaterial,
+      this.bodyPivot
+    );
+    const helmet = ellipsoid(
+      scene,
       "pilot-helmet",
-      {
-        diameterX: 0.72,
-        diameterY: 0.76,
-        diameterZ: 0.72,
-        segments: 14
-      },
-      scene
+      new Vector3(0.4, 0.42, 0.41),
+      new Vector3(0, 1.67, -0.2),
+      accentMaterial,
+      this.bodyPivot
     );
-    helmet.material = accentMaterial;
-    helmet.position.set(0, 1.54, -0.28);
-    helmet.parent = this.bodyPivot;
+    helmet.scaling.z = 0.43;
 
-    const visor = MeshBuilder.CreateBox(
-      "pilot-visor",
-      { width: 0.58, height: 0.18, depth: 0.12 },
+    const helmetStripe = MeshBuilder.CreateBox(
+      "pilot-helmet-stripe",
+      { width: 0.1, height: 0.72, depth: 0.03 },
       scene
     );
-    visor.material = glassMaterial;
-    visor.position.set(0, 1.56, 0.06);
-    visor.parent = this.bodyPivot;
+    helmetStripe.material = suitMaterial;
+    helmetStripe.position.set(0, 1.72, 0.18);
+    helmetStripe.parent = this.bodyPivot;
+
+    const visor = ellipsoid(
+      scene,
+      "pilot-visor",
+      new Vector3(0.34, 0.14, 0.08),
+      new Vector3(0, 1.69, 0.18),
+      glassMaterial,
+      this.bodyPivot
+    );
+    visor.scaling.z = 0.06;
 
     const steeringWheel = MeshBuilder.CreateTorus(
       "steering-wheel",
-      { diameter: 0.48, thickness: 0.07, tessellation: 14 },
+      { diameter: 0.5, thickness: 0.065, tessellation: 20 },
       scene
     );
     steeringWheel.material = darkMaterial;
-    steeringWheel.position.set(0, 1.22, 0.46);
-    steeringWheel.rotation.x = Math.PI * 0.36;
+    steeringWheel.position.set(0, 1.16, 0.48);
+    steeringWheel.rotation.x = Math.PI * 0.38;
     steeringWheel.parent = this.bodyPivot;
 
     const rearWing = MeshBuilder.CreateBox(
       "kart-wing",
-      { width: 2.06, height: 0.16, depth: 0.4 },
+      { width: 1.9, height: 0.13, depth: 0.38 },
       scene
     );
     rearWing.material = accentMaterial;
-    rearWing.position.set(0, 1.08, -1.42);
+    rearWing.position.set(0, 1.15, -1.37);
+    rearWing.rotation.x = -0.08;
     rearWing.parent = this.bodyPivot;
 
-    for (const side of [-0.68, 0.68]) {
-      const wingSupport = MeshBuilder.CreateBox(
+    for (const side of [-0.63, 0.63]) {
+      const wingSupport = MeshBuilder.CreateCylinder(
         "kart-wing-support",
-        { width: 0.12, height: 0.5, depth: 0.12 },
+        { diameter: 0.09, height: 0.5, tessellation: 8 },
         scene
       );
       wingSupport.material = darkMaterial;
-      wingSupport.position.set(side, 0.86, -1.42);
+      wingSupport.position.set(side, 0.93, -1.35);
       wingSupport.parent = this.bodyPivot;
     }
 
-    for (const x of [-0.96, 0.96]) {
-      for (const z of [-0.95, 0.95]) {
-        const wheel = MeshBuilder.CreateCylinder(
-          "kart-wheel",
-          { diameter: 0.72, height: 0.38, tessellation: 14 },
+    for (const x of [-0.98, 0.98]) {
+      for (const z of [-0.93, 0.93]) {
+        const pivot = new TransformNode("kart-wheel-pivot", scene);
+        pivot.position.set(x, 0.48, z);
+        pivot.parent = this.bodyPivot;
+        if (z > 0) {
+          this.frontWheelPivots.push(pivot);
+        }
+
+        const tire = MeshBuilder.CreateTorus(
+          "kart-tire",
+          {
+            diameter: 0.64,
+            thickness: 0.23,
+            tessellation: 20
+          },
           scene
         );
-        wheel.material = tireMaterial;
-        wheel.position.set(x, 0.48, z);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.parent = this.bodyPivot;
-        this.wheels.push(wheel);
+        tire.material = rubberMaterial;
+        tire.rotation.z = Math.PI / 2;
+        tire.parent = pivot;
 
         const rim = MeshBuilder.CreateCylinder(
           "kart-rim",
-          { diameter: 0.38, height: 0.4, tessellation: 12 },
+          { diameter: 0.34, height: 0.25, tessellation: 16 },
           scene
         );
-        rim.material = rimMaterial;
-        rim.parent = wheel;
+        rim.material = metalMaterial;
+        rim.rotation.z = Math.PI / 2;
+        rim.parent = pivot;
+
+        const hub = MeshBuilder.CreateCylinder(
+          "kart-wheel-hub",
+          { diameter: 0.13, height: 0.29, tessellation: 12 },
+          scene
+        );
+        hub.material = accentMaterial;
+        hub.rotation.z = Math.PI / 2;
+        hub.parent = pivot;
+        this.wheelDetails.push(pivot);
       }
     }
 
-    for (const x of [-0.53, 0.53]) {
-      const brakeLight = MeshBuilder.CreateBox(
+    for (const x of [-0.5, 0.5]) {
+      const brakeLight = MeshBuilder.CreateSphere(
         "kart-brake-light",
-        { width: 0.34, height: 0.14, depth: 0.08 },
+        { diameter: 0.18, segments: 10 },
         scene
       );
+      brakeLight.scaling.z = 0.45;
       brakeLight.material = redLightMaterial;
-      brakeLight.position.set(x, 0.78, -1.48);
+      brakeLight.position.set(x, 0.79, -1.38);
       brakeLight.parent = this.bodyPivot;
 
       const exhaust = MeshBuilder.CreateCylinder(
         "kart-exhaust",
-        { diameter: 0.2, height: 0.42, tessellation: 10 },
+        { diameter: 0.18, height: 0.38, tessellation: 12 },
         scene
       );
-      exhaust.material = rimMaterial;
-      exhaust.position.set(x, 0.51, -1.56);
+      exhaust.material = metalMaterial;
+      exhaust.position.set(x, 0.52, -1.51);
       exhaust.rotation.x = Math.PI / 2;
       exhaust.parent = this.bodyPivot;
     }
 
     const diffuser = MeshBuilder.CreateBox(
       "kart-diffuser",
-      { width: 1.52, height: 0.16, depth: 0.38 },
+      { width: 1.35, height: 0.14, depth: 0.32 },
       scene
     );
     diffuser.material = darkMaterial;
-    diffuser.position.set(0, 0.4, -1.53);
-    diffuser.rotation.x = -0.12;
+    diffuser.position.set(0, 0.39, -1.43);
+    diffuser.rotation.x = -0.13;
     diffuser.parent = this.bodyPivot;
 
     const numberTexture = new DynamicTexture(
@@ -320,9 +408,9 @@ export class KartVisual {
     numberTexture.drawText(
       String((colorIndex % KART_PALETTES.length) + 1).padStart(2, "0"),
       null,
-      180,
-      "italic 900 138px Arial",
-      "#07100f",
+      178,
+      "italic 900 132px Arial",
+      "#182025",
       "transparent",
       true,
       true
@@ -338,17 +426,17 @@ export class KartVisual {
     numberMaterial.backFaceCulling = false;
     const numberPlate = MeshBuilder.CreatePlane(
       "kart-number",
-      { width: 0.72, height: 0.72 },
+      { width: 0.62, height: 0.62 },
       scene
     );
     numberPlate.material = numberMaterial;
-    numberPlate.position.set(0, 0.83, 1.91);
+    numberPlate.position.set(0, 0.9, 1.59);
     numberPlate.rotation.x = Math.PI / 2;
     numberPlate.parent = this.bodyPivot;
 
     const nameTexture = new DynamicTexture(
       `kart-name-texture-${visualId}`,
-      { width: 512, height: 128 },
+      { width: 512, height: 96 },
       scene,
       false
     );
@@ -356,10 +444,10 @@ export class KartVisual {
     nameTexture.drawText(
       pilotName.toUpperCase().slice(0, 16),
       null,
-      88,
-      "900 54px Arial",
-      "#f7fbf9",
-      "rgba(5, 12, 11, 0.72)",
+      66,
+      "800 42px Arial",
+      "#ffffff",
+      "transparent",
       true,
       true
     );
@@ -372,24 +460,24 @@ export class KartVisual {
     nameMaterial.opacityTexture = nameTexture;
     nameMaterial.disableLighting = true;
     nameMaterial.backFaceCulling = false;
-    const nameplate = MeshBuilder.CreatePlane(
+    this.nameplate = MeshBuilder.CreatePlane(
       "kart-nameplate",
-      { width: 2.8, height: 0.7 },
+      { width: 1.8, height: 0.34 },
       scene
     );
-    nameplate.material = nameMaterial;
-    nameplate.position.set(0, 2.45, 0);
-    nameplate.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    nameplate.parent = this.root;
+    this.nameplate.material = nameMaterial;
+    this.nameplate.position.set(0, 2.35, 0);
+    this.nameplate.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    this.nameplate.parent = this.root;
 
     for (const x of [-0.48, 0.48]) {
       const spark = MeshBuilder.CreateSphere(
         "drift-spark",
-        { diameter: 0.2, segments: 8 },
+        { diameter: 0.16, segments: 8 },
         scene
       );
       spark.material = glowMaterial;
-      spark.position.set(x, 0.33, -1.42);
+      spark.position.set(x, 0.31, -1.25);
       spark.parent = this.bodyPivot;
       spark.setEnabled(false);
       this.sparks.push(spark);
@@ -397,15 +485,15 @@ export class KartVisual {
       const flame = MeshBuilder.CreateCylinder(
         "boost-flame",
         {
-          diameterTop: 0.08,
-          diameterBottom: 0.34,
-          height: 0.8,
-          tessellation: 10
+          diameterTop: 0.07,
+          diameterBottom: 0.26,
+          height: 0.65,
+          tessellation: 12
         },
         scene
       );
       flame.material = glowMaterial;
-      flame.position.set(x, 0.62, -1.75);
+      flame.position.set(x, 0.52, -1.72);
       flame.rotation.x = Math.PI / 2;
       flame.parent = this.bodyPivot;
       flame.setEnabled(false);
@@ -413,9 +501,22 @@ export class KartVisual {
     }
   }
 
-  update(state: Readonly<KartState>, deltaSeconds: number, snap = false): void {
+  setLocalPlayer(local: boolean): void {
+    this.nameplate.setEnabled(!local);
+  }
+
+  update(
+    state: Readonly<KartState>,
+    deltaSeconds: number,
+    trackId: TrackId,
+    snap = false
+  ): void {
     const amount = snap ? 1 : 1 - Math.exp(-deltaSeconds * 13);
-    const targetPosition = new Vector3(state.x, 0.09, state.z);
+    const targetPosition = new Vector3(
+      state.x,
+      trackHeightAtProgress(trackId, state.progress) + 0.12,
+      state.z
+    );
     Vector3.LerpToRef(
       this.root.position,
       targetPosition,
@@ -428,31 +529,39 @@ export class KartVisual {
       amount
     );
 
-    const leanTarget = -state.steer * Math.min(0.12, Math.abs(state.speed) * 0.004);
+    const speedRatio = Math.min(1, Math.abs(state.speed) / 34);
+    const leanTarget = -state.steer * (0.045 + speedRatio * 0.085);
     this.bodyPivot.rotation.z +=
       (leanTarget - this.bodyPivot.rotation.z) *
       (1 - Math.exp(-deltaSeconds * 8));
+    this.bodyPivot.position.y =
+      Math.sin(performance.now() * 0.012) * speedRatio * 0.025;
 
-    this.wheelRotation += state.speed * deltaSeconds / 0.36;
-    for (const wheel of this.wheels) {
-      wheel.rotation.y = this.wheelRotation;
+    this.wheelRotation += state.speed * deltaSeconds / 0.32;
+    for (const pivot of this.frontWheelPivots) {
+      pivot.rotation.y +=
+        (state.steer * 0.3 - pivot.rotation.y) *
+        (1 - Math.exp(-deltaSeconds * 12));
+    }
+    for (const detail of this.wheelDetails) {
+      detail.rotation.x = this.wheelRotation;
     }
 
     const chargeRatio = clamp01(state.driftCharge / 1.25);
     const sparkColor =
       chargeRatio > 0.78
-        ? Color3.FromHexString("#ff5f55")
+        ? Color3.FromHexString("#f0604f")
         : chargeRatio > 0.42
-          ? Color3.FromHexString("#bafc4b")
-          : Color3.FromHexString("#4cf4e6");
+          ? Color3.FromHexString("#f3c84b")
+          : Color3.FromHexString("#4dcac5");
 
     for (const [index, spark] of this.sparks.entries()) {
       spark.setEnabled(state.drifting);
       const pulse = 0.8 + Math.sin(performance.now() * 0.025 + index) * 0.25;
       spark.scaling.setAll(pulse * (0.65 + chargeRatio));
-      const material = spark.material as StandardMaterial;
-      material.emissiveColor = sparkColor;
-      material.diffuseColor = sparkColor;
+      const sparkMaterial = spark.material as StandardMaterial;
+      sparkMaterial.emissiveColor = sparkColor;
+      sparkMaterial.diffuseColor = sparkColor;
     }
 
     for (const [index, flame] of this.boostFlames.entries()) {
@@ -463,8 +572,8 @@ export class KartVisual {
 
     this.accentMaterial.emissiveColor =
       state.boostTime > 0
-        ? this.accentMaterial.diffuseColor.scale(0.28)
-        : this.accentMaterial.diffuseColor.scale(0.08);
+        ? this.accentMaterial.diffuseColor.scale(0.16)
+        : Color3.Black();
   }
 
   dispose(): void {

@@ -12,6 +12,7 @@ import {
   sanitizeKartInput,
   sanitizeTrackId,
   stepKart,
+  trackHeightAtProgress,
   trackLength,
   TRACK_WIDTH
 } from "./index.js";
@@ -270,8 +271,25 @@ describe("simulation de kart", () => {
       expect(track.centerline.length).toBeGreaterThan(150);
       expect(trackLength(trackId)).toBeGreaterThan(200);
       expect(projection.distance).toBeLessThan(track.width * 0.5);
+      expect(track.elevationProfile.length).toBeGreaterThan(2);
+      expect(trackHeightAtProgress(trackId, 0)).toBeCloseTo(0);
       expect(intersections).toBe(0);
     }
+    expect(trackHeightAtProgress("riviera-royale", 0.43)).toBeGreaterThan(10);
     expect(sanitizeTrackId("inconnu")).toBe("aurora");
+  });
+
+  it("ignore les collisions entre portions proches mais éloignées dans le tour", () => {
+    const spawn = createSpawnState(0, "riviera-royale");
+    const [first, second] = resolveKartCollisions(
+      [
+        { ...spawn, progress: 0.1 },
+        { ...spawn, progress: 0.4 }
+      ],
+      "riviera-royale"
+    );
+
+    expect(first?.x).toBeCloseTo(second?.x ?? Number.NaN);
+    expect(first?.z).toBeCloseTo(second?.z ?? Number.NaN);
   });
 });
