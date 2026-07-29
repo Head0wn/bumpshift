@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta
+      name="description"
+      content="BUMPSHIFT — jeu de kart 3D multijoueur dans votre navigateur."
+    />
+    <meta name="theme-color" content="#07100f" />
+    <title>BUMPSHIFT</title>
+  </head>
+  <body>
+    <canvas id="game-canvas" aria-label="Course BUMPSHIFT"></canvas>
+
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="noise" aria-hidden="true"></div>
+
+    <main id="menu" class="menu">
+      <header class="menu-topbar">
+        <button class="brand-mark" data-open-panel="home" aria-label="Accueil BUMPSHIFT">
+          <span>BUMP</span><strong>SHIFT</strong>
+        </button>
+        <div class="build-status">
+          <span class="build-status__dot"></span>
+          Pré-alpha 0.4
+        </div>
+      </header>
+
+      <div class="menu-layout">
+        <nav class="menu-nav" aria-label="Menu principal">
+          <button class="menu-nav__item is-active" data-open-panel="home">
+            <span>01</span>
+            Accueil
+          </button>
+          <button class="menu-nav__item" data-open-panel="play">
+            <span>02</span>
+            Jouer
+          </button>
+          <button class="menu-nav__item" data-open-panel="garage">
+            <span>03</span>
+            Garage
+          </button>
+          <button class="menu-nav__item" data-open-panel="settings">
+            <span>04</span>
+            Paramètres
+          </button>
+        </nav>
+
+        <div class="menu-panels">
+          <section class="menu-panel is-active" data-panel="home" aria-labelledby="game-title">
+            <div class="home-hero">
+              <div class="eyebrow">
+                <span class="eyebrow__dot"></span>
+                Course arcade multijoueur
+              </div>
+              <h1 id="game-title" class="logo" aria-label="BUMPSHIFT">
+                <span>BUMP</span><span>SHIFT</span>
+              </h1>
+              <p class="tagline">Dérape. Frappe. Termine premier.</p>
+
+              <div class="home-actions">
+                <button class="primary-action" data-open-panel="play">
+                  <span>
+                    <small>Course rapide</small>
+                    JOUER EN LIGNE
+                  </span>
+                  <strong aria-hidden="true">→</strong>
+                </button>
+                <button class="secondary-action" data-open-panel="garage">
+                  Personnaliser le kart
+                </button>
+                <button class="secondary-action" data-open-panel="settings">
+                  Régler le jeu
+                </button>
+              </div>
+            </div>
+
+            <aside class="update-card">
+              <span class="update-card__badge">Nouveau circuit</span>
+              <strong>RIVIERA ROYALE</strong>
+              <p>Une principauté solaire, une épingle brutale et un tunnel au bord du port.</p>
+              <button data-open-panel="play" data-select-track="riviera-royale">
+                Choisir ce circuit
+              </button>
+            </aside>
+          </section>
+
+          <section class="menu-panel" data-panel="play" hidden aria-labelledby="play-title">
+            <div class="panel-heading">
+              <button class="back-button" data-menu-back aria-label="Retour">←</button>
+              <div>
+                <span>Course en ligne</span>
+                <h2 id="play-title">CHOISIS TA PISTE</h2>
+              </div>
+            </div>
+
+            <div id="track-selector" class="track-selector" role="radiogroup" aria-label="Circuit">
+              <button
+                class="track-card is-selected"
+                type="button"
+                data-track-id="aurora"
+                role="radio"
+                aria-checked="true"
+              >
+                <svg class="track-card__map" viewBox="0 0 180 120" aria-hidden="true">
+                  <path></path>
+                </svg>
+                <span class="track-card__number">01</span>
+                <span class="track-card__content">
+                  <small>Forêt boréale · Accessible</small>
+                  <strong>Circuit Aurore</strong>
+                  <i>Rapide et généreux pour apprendre le drift.</i>
+                </span>
+              </button>
+
+              <button
+                class="track-card"
+                type="button"
+                data-track-id="riviera-royale"
+                role="radio"
+                aria-checked="false"
+              >
+                <span class="track-card__new">Nouveau</span>
+                <svg class="track-card__map" viewBox="0 0 180 120" aria-hidden="true">
+                  <path></path>
+                </svg>
+                <span class="track-card__number">02</span>
+                <span class="track-card__content">
+                  <small>Principauté solaire · Technique</small>
+                  <strong>Riviera Royale</strong>
+                  <i>Épingles, tunnel et barrières au bord du port.</i>
+                </span>
+              </button>
+            </div>
+
+            <form id="join-form" class="race-setup">
+              <label for="player-name">
+                <span>Nom du pilote</span>
+                <input
+                  id="player-name"
+                  name="playerName"
+                  maxlength="16"
+                  autocomplete="nickname"
+                  placeholder="Pilote"
+                  value="Pilote"
+                />
+              </label>
+              <button id="join-button" class="join-button" type="submit">
+                <span>
+                  <small>Jusqu'à 12 pilotes</small>
+                  REJOINDRE LA GRILLE
+                </span>
+                <strong aria-hidden="true">→</strong>
+              </button>
+              <p id="menu-error" class="menu-error" role="alert"></p>
+            </form>
+          </section>
+
+          <section class="menu-panel" data-panel="garage" hidden aria-labelledby="garage-title">
+            <div class="panel-heading">
+              <button class="back-button" data-menu-back aria-label="Retour">←</button>
+              <div>
+                <span>Personnalisation</span>
+                <h2 id="garage-title">GARAGE</h2>
+              </div>
+            </div>
+
+            <div class="garage-layout">
+              <div class="garage-preview" aria-hidden="true">
+                <div id="garage-kart" class="garage-kart">
+                  <i class="garage-kart__wing"></i>
+                  <i class="garage-kart__body"></i>
+                  <i class="garage-kart__cockpit"></i>
+                  <i class="garage-kart__wheel garage-kart__wheel--fl"></i>
+                  <i class="garage-kart__wheel garage-kart__wheel--fr"></i>
+                  <i class="garage-kart__wheel garage-kart__wheel--rl"></i>
+                  <i class="garage-kart__wheel garage-kart__wheel--rr"></i>
+                </div>
+                <span>BS-01 / Châssis standard</span>
+              </div>
+              <div class="garage-options">
+                <span class="field-label">Livrée</span>
+                <strong id="kart-color-name">Nova</strong>
+                <div id="kart-colors" class="kart-colors" role="radiogroup" aria-label="Couleur du kart"></div>
+                <p>La personnalisation est visible par tous les pilotes de la grille.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="menu-panel" data-panel="settings" hidden aria-labelledby="settings-title">
+            <div class="panel-heading">
+              <button class="back-button" data-menu-back aria-label="Retour">←</button>
+              <div>
+                <span>Affichage et commandes</span>
+                <h2 id="settings-title">PARAMÈTRES</h2>
+              </div>
+            </div>
+
+            <div class="settings-grid">
+              <section class="settings-card">
+                <div class="settings-card__heading">
+                  <div>
+                    <span>Graphismes</span>
+                    <strong>Qualité de rendu</strong>
+                  </div>
+                  <small>Appliqué immédiatement</small>
+                </div>
+                <div class="segmented-control" role="radiogroup" aria-label="Qualité graphique">
+                  <button type="button" data-quality="performance">Performance</button>
+                  <button class="is-selected" type="button" data-quality="balanced">Équilibré</button>
+                  <button type="button" data-quality="quality">Qualité</button>
+                </div>
+              </section>
+
+              <section class="settings-card">
+                <label class="range-setting" for="camera-motion">
+                  <span>
+                    <small>Caméra</small>
+                    <strong>Intensité des mouvements</strong>
+                  </span>
+                  <output id="camera-motion-value" for="camera-motion">70%</output>
+                </label>
+                <input id="camera-motion" type="range" min="0" max="100" value="70" />
+              </section>
+
+              <section class="settings-card">
+                <label class="toggle-setting" for="gamepad-vibration">
+                  <span>
+                    <small>Manette</small>
+                    <strong>Vibrations</strong>
+                    <i>Selon la compatibilité du navigateur et de la manette.</i>
+                  </span>
+                  <input id="gamepad-vibration" type="checkbox" checked />
+                  <b aria-hidden="true"></b>
+                </label>
+              </section>
+
+              <section class="settings-card controller-map">
+                <div class="settings-card__heading">
+                  <div>
+                    <span>Commandes</span>
+                    <strong>Manette standard</strong>
+                  </div>
+                  <small id="controller-status">Manette non détectée</small>
+                </div>
+                <div class="controller-map__grid">
+                  <span><kbd>Stick G.</kbd> Direction</span>
+                  <span><kbd>RT / R2</kbd> Accélérer</span>
+                  <span><kbd>LT / L2</kbd> Freiner</span>
+                  <span><kbd>A / ✕</kbd> Déraper</span>
+                </div>
+              </section>
+
+              <button id="fullscreen-button" class="fullscreen-button" type="button">
+                <span>
+                  <small>Affichage</small>
+                  PASSER EN PLEIN ÉCRAN
+                </span>
+                <strong>⛶</strong>
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <footer class="menu-footer">
+        <span>ZQSD / Stick gauche pour naviguer</span>
+        <span><kbd>A</kbd> Valider</span>
+        <span><kbd>B</kbd> Retour</span>
+      </footer>
+    </main>
+
+    <section id="hud" class="hud" hidden aria-label="Informations de course">
+      <div class="hud__top">
+        <div class="race-pill">
+          <span class="race-pill__live"></span>
+          <span id="connection-label">Connexion</span>
+        </div>
+
+        <div class="hud__network">
+          <span id="player-count">1 pilote</span>
+          <span class="hud__divider"></span>
+          <span id="latency">-- ms</span>
+        </div>
+      </div>
+
+      <div class="hud__position">
+        <strong id="position">1</strong>
+        <span>/</span>
+        <span id="field-size">1</span>
+      </div>
+
+      <div class="hud__lap">
+        <span>Tour</span>
+        <strong><span id="lap">1</span><i>/3</i></strong>
+      </div>
+
+      <div class="hud__speed">
+        <strong id="speed">0</strong>
+        <span>km/h</span>
+      </div>
+
+      <div class="drift-meter">
+        <div class="drift-meter__label">
+          <span>Mini-turbo</span>
+          <span id="drift-level">Prêt</span>
+        </div>
+        <div class="drift-meter__track">
+          <span id="drift-fill"></span>
+          <i></i><i></i>
+        </div>
+      </div>
+    </section>
+
+    <section
+      id="race-overlay"
+      class="race-overlay"
+      data-phase="waiting"
+      hidden
+      aria-live="polite"
+    >
+      <div class="race-overlay__panel">
+        <div id="phase-lights" class="start-lights" aria-hidden="true">
+          <i class="start-light"></i>
+          <i class="start-light"></i>
+          <i class="start-light"></i>
+        </div>
+        <span id="phase-eyebrow" class="race-overlay__eyebrow">MANCHE 1</span>
+        <strong id="phase-title" class="race-overlay__title">GRILLE DE DÉPART</strong>
+        <p id="phase-detail" class="race-overlay__detail">Synchronisation des pilotes…</p>
+        <div id="phase-standings" class="phase-standings"></div>
+        <button id="ready-button" class="ready-button" type="button">
+          JE SUIS PRÊT
+        </button>
+      </div>
+    </section>
+
+    <section id="touch-controls" class="touch-controls" aria-label="Commandes tactiles">
+      <div class="touch-controls__steer">
+        <button data-input="left" aria-label="Tourner à gauche">‹</button>
+        <button data-input="right" aria-label="Tourner à droite">›</button>
+      </div>
+      <div class="touch-controls__actions">
+        <button class="touch-controls__drift" data-input="drift">Drift</button>
+        <button class="touch-controls__brake" data-input="brake">Frein</button>
+        <button class="touch-controls__gas" data-input="throttle">Gaz</button>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
