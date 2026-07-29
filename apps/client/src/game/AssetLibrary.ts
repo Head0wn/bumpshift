@@ -1,4 +1,4 @@
-import "@babylonjs/loaders/glTF";
+import "@babylonjs/loaders/glTF/index.js";
 import type { AssetContainer } from "@babylonjs/core/assetContainer";
 import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader";
 import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
